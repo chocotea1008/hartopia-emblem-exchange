@@ -26,6 +26,7 @@ const elements = {
     mainToggle: document.getElementById("mode-switch"),
     toggleContainer: document.querySelector(".toggle-container"),
     instructionText: document.getElementById("instruction-text"),
+    myNicknameChip: document.getElementById("my-nickname-chip"),
     resetBtn: document.getElementById("reset-mode-btn"),
     categoryContainer: document.getElementById("category-container"),
     completeBtn: document.getElementById("complete-btn"),
@@ -502,6 +503,10 @@ async function init() {
         const { uid, nickname, activity } = await initAnonymousAuth();
         state.uid = uid;
         state.nickname = nickname;
+        if (elements.myNicknameChip) {
+            elements.myNicknameChip.textContent = `내 닉네임: ${nickname}`;
+            elements.myNicknameChip.title = nickname;
+        }
 
         maybeApplyStoredSelection();
         bindEvents();

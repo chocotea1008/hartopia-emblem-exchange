@@ -58,6 +58,34 @@ body {
     z-index: 100;
 }
 
+.header-left-controls {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    z-index: 30;
+}
+
+.my-nickname-chip {
+    position: absolute;
+    top: 14px;
+    right: 12px;
+    max-width: 42%;
+    background: rgba(255, 255, 255, 0.3);
+    border: 2px solid #fff;
+    color: #fff;
+    padding: 5px 10px;
+    border-radius: 12px;
+    font-size: 0.78rem;
+    font-weight: 800;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 .progress-pill {
     background: linear-gradient(90deg, #ffc8dd 0%, #ffafcc 100%);
     border-radius: 50px;
@@ -417,9 +445,7 @@ body {
 
 /* Donate Button */
 .donate-btn {
-    position: absolute;
-    top: 15px;
-    right: 15px;
+    position: relative;
     background: var(--pop-pink);
     border: 2px solid #fff;
     color: #fff;
@@ -442,9 +468,7 @@ body {
 
 /* Help Button */
 .help-btn {
-    position: absolute;
-    top: 15px;
-    left: 15px;
+    position: relative;
     background: rgba(255, 255, 255, 0.3);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
@@ -537,9 +561,14 @@ body {
         padding-right: 0.75rem;
     }
 
+    .header-left-controls {
+        top: 10px;
+        left: 10px;
+        gap: 6px;
+    }
+
     .help-btn,
     .donate-btn {
-        top: 10px;
         width: 38px;
         height: 38px;
         padding: 0;
@@ -550,12 +579,17 @@ body {
         font-size: 1rem;
     }
 
-    .help-btn { left: 10px; }
-    .donate-btn { right: 10px; }
-
     .help-btn .btn-label,
     .donate-btn .btn-label {
         display: none;
+    }
+
+    .my-nickname-chip {
+        top: 11px;
+        right: 10px;
+        max-width: 46%;
+        padding: 5px 8px;
+        font-size: 0.7rem;
     }
 
     .action-area {

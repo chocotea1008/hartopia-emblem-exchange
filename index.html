@@ -14,14 +14,17 @@
     <div class="app-container">
         <!-- 1. Top Header -->
         <header class="app-header">
-            <button class="help-btn" id="help-btn" aria-label="도움말">
-                <span class="btn-emoji" aria-hidden="true">❓</span>
-                <span class="btn-label">도움말</span>
-            </button>
-            <button class="donate-btn" onclick="location.href='support.html'" aria-label="후원하기">
-                <span class="btn-emoji" aria-hidden="true">❤️</span>
-                <span class="btn-label">후원하기</span>
-            </button>
+            <div class="header-left-controls">
+                <button class="help-btn" id="help-btn" aria-label="도움말">
+                    <span class="btn-emoji" aria-hidden="true">❓</span>
+                    <span class="btn-label">도움말</span>
+                </button>
+                <button class="donate-btn" onclick="location.href='support.html'" aria-label="후원하기">
+                    <span class="btn-emoji" aria-hidden="true">❤️</span>
+                    <span class="btn-label">후원하기</span>
+                </button>
+            </div>
+            <div class="my-nickname-chip" id="my-nickname-chip">내 닉네임: -</div>
             <div class="progress-pill">
                 <span>✦</span>
                 <span class="progress-text">뜌타 휘장 교환소</span>
