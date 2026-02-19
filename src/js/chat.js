@@ -61,6 +61,8 @@ const state = {
     isCancelling: false,
     isTradeHandled: false,
     closeSignalSent: false,
+    navigationGuardActive: false,
+    lastBackBlockedAt: 0,
 };
 
 function unique(items) {
@@ -198,6 +200,48 @@ function setPartnerStatusText(isOnline) {
     elements.partnerStatus.textContent = isOnline ? "온라인" : "오프라인";
     elements.partnerStatus.classList.toggle("is-online", isOnline);
     elements.partnerStatus.classList.toggle("is-offline", !isOnline);
+}
+
+function disableNavigationGuard() {
+    if (!state.navigationGuardActive) {
+        return;
+    }
+    window.removeEventListener("popstate", handleBrowserBackBlocked);
+    state.navigationGuardActive = false;
+}
+
+function notifyBackBlocked() {
+    const now = Date.now();
+    if (now - state.lastBackBlockedAt < 1500) {
+        return;
+    }
+    state.lastBackBlockedAt = now;
+    alert("채팅 중에는 화면의 뒤로가기 버튼을 사용해주세요.");
+}
+
+function handleBrowserBackBlocked() {
+    if (state.isTradeHandled || state.isRouting || state.isCancelling) {
+        return;
+    }
+    try {
+        window.history.pushState({ chatGuard: true }, "", window.location.href);
+    } catch {
+        // ignore pushState failures
+    }
+    notifyBackBlocked();
+}
+
+function enableNavigationGuard() {
+    if (state.navigationGuardActive) {
+        return;
+    }
+    try {
+        window.history.pushState({ chatGuard: true }, "", window.location.href);
+    } catch {
+        // ignore pushState failures
+    }
+    window.addEventListener("popstate", handleBrowserBackBlocked);
+    state.navigationGuardActive = true;
 }
 
 function showPresenceNotice(text) {
@@ -431,6 +475,7 @@ async function navigateWithStatus(status, targetUrl) {
         return;
     }
     state.isRouting = true;
+    disableNavigationGuard();
     stopRealtimeListeners();
 
     try {
@@ -880,6 +925,7 @@ async function init() {
                     (recoveredChat.participants ?? []).find((uid) => uid !== state.uid) ?? null;
             } else {
                 alert("채팅 정보를 찾을 수 없습니다. 매칭 목록으로 이동합니다.");
+                disableNavigationGuard();
                 window.location.href = "exchange.html";
                 return;
             }
@@ -889,6 +935,7 @@ async function init() {
         state.chatRef = doc(db, "chats", state.chatId);
 
         bindEvents();
+        enableNavigationGuard();
         await ensureChatExists();
         setChatInputEnabled(true);
         updateCompleteButtonState(null);

@@ -3,7 +3,8 @@ import { getInitErrorHint } from "./error-hints.js";
 
 const MATCHING_ACTIVE_STORAGE_KEY = "emblem.matching.active";
 const SELECTION_STORAGE_KEY = "emblem.selection";
-const CHAT_OPENED_MESSAGE = "채팅방이 열렸습니다.";
+const INCOMING_REQUEST_NOTIFICATION_TITLE = "교환 요청";
+const INCOMING_REQUEST_NOTIFICATION_KEY_PREFIX = "emblem.incoming.request.";
 const DEFAULT_PARTNER_NAME = "상대방";
 
 const elements = {
@@ -161,6 +162,24 @@ function showNotification(title, body) {
         return;
     }
     runtime.showSystemNotification(title, { body }).catch(console.error);
+}
+
+function getIncomingRequestNotifyKey(chatId) {
+    return `${INCOMING_REQUEST_NOTIFICATION_KEY_PREFIX}${chatId}`;
+}
+
+function shouldNotifyIncomingRequest(chatId) {
+    if (!chatId) {
+        return false;
+    }
+    return sessionStorage.getItem(getIncomingRequestNotifyKey(chatId)) !== "1";
+}
+
+function markIncomingRequestNotified(chatId) {
+    if (!chatId) {
+        return;
+    }
+    sessionStorage.setItem(getIncomingRequestNotifyKey(chatId), "1");
 }
 
 function updateActionAreaUI() {
@@ -566,20 +585,25 @@ function listenIncomingRequests() {
         state.unsubscribeRequests();
     }
 
-    state.unsubscribeRequests = runtime.watchIncomingTradeRequests(state.uid, (chatData) => {
-        const partnerId = runtime.getPartnerIdFromChat(chatData, state.uid);
-        const partnerName = partnerId
-            ? chatData.participantNicknames?.[partnerId] ?? DEFAULT_PARTNER_NAME
-            : DEFAULT_PARTNER_NAME;
+    state.unsubscribeRequests = runtime.watchIncomingTradeRequests(
+        state.uid,
+        (chatData) => {
+            const partnerId = runtime.getPartnerIdFromChat(chatData, state.uid);
+            const partnerName = partnerId
+                ? chatData.participantNicknames?.[partnerId] ?? DEFAULT_PARTNER_NAME
+                : DEFAULT_PARTNER_NAME;
+            if (shouldNotifyIncomingRequest(chatData.chatId)) {
+                showNotification(
+                    INCOMING_REQUEST_NOTIFICATION_TITLE,
+                    `${partnerName}님이 교환 요청을 하였습니다.`,
+                );
+                markIncomingRequestNotified(chatData.chatId);
+            }
 
-        showNotification(
-            CHAT_OPENED_MESSAGE,
-            `${partnerName}님이 채팅을 열었습니다.`,
-            null,
-        );
-
-        openChatPage(chatData.chatId, partnerId);
-    });
+            openChatPage(chatData.chatId, partnerId);
+        },
+        { emitInitial: false },
+    );
 }
 
 async function init() {

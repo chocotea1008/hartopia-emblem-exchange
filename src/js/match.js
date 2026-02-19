@@ -99,6 +99,26 @@ function shouldNotifyIncomingChat(chatData, nowUpdatedAt, prevUpdatedAt, isIniti
     return true;
 }
 
+function isIncomingRequestForUser(chatData, uid) {
+    if (!chatData || !uid) {
+        return false;
+    }
+
+    if (typeof chatData.lastSenderId === "string" && chatData.lastSenderId === uid) {
+        return false;
+    }
+
+    if (
+        (!chatData.lastSenderId || chatData.lastSenderId === "") &&
+        typeof chatData.initiatorId === "string" &&
+        chatData.initiatorId === uid
+    ) {
+        return false;
+    }
+
+    return true;
+}
+
 function intersect(left, right) {
     const rightSet = new Set(unique(right));
     return unique(left).filter((item) => rightSet.has(item));
@@ -399,7 +419,8 @@ export function watchIncomingTradeRequests(uid, onRequest, options = {}) {
 
                 if (
                     emitInitial &&
-                    shouldNotifyIncomingChat(chatData, nowUpdatedAt, 0, true)
+                    shouldNotifyIncomingChat(chatData, nowUpdatedAt, 0, true) &&
+                    isIncomingRequestForUser(chatData, uid)
                 ) {
                     initialCandidates.push({
                         chatId: chatDoc.id,
@@ -434,6 +455,9 @@ export function watchIncomingTradeRequests(uid, onRequest, options = {}) {
             if (
                 !shouldNotifyIncomingChat(chatData, nowUpdatedAt, prevUpdatedAt, false)
             ) {
+                continue;
+            }
+            if (!isIncomingRequestForUser(chatData, uid)) {
                 continue;
             }
 

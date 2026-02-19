@@ -90,9 +90,13 @@ function listenIncomingRequests() {
     if (state.unsubscribeRequests) {
         state.unsubscribeRequests();
     }
-    state.unsubscribeRequests = watchIncomingTradeRequests(state.uid, (chatData) => {
-        openChat(chatData);
-    });
+    state.unsubscribeRequests = watchIncomingTradeRequests(
+        state.uid,
+        (chatData) => {
+            openChat(chatData);
+        },
+        { emitInitial: false },
+    );
 }
 
 async function init() {

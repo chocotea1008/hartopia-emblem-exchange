@@ -28,6 +28,8 @@ import {
 } from "./match.js";
 
 const CHAT_OPENED_MESSAGE = "채팅방이 열렸습니다.";
+const INCOMING_REQUEST_NOTIFICATION_TITLE = "교환 요청";
+const INCOMING_REQUEST_NOTIFICATION_KEY_PREFIX = "emblem.incoming.request.";
 const DEFAULT_PARTNER_NAME = "상대방";
 const CHAT_RECOVERY_POLL_MS = 1500;
 
@@ -51,6 +53,24 @@ const state = {
 
 function showNotification(title, body) {
     showSystemNotification(title, { body }).catch(console.error);
+}
+
+function getIncomingRequestNotifyKey(chatId) {
+    return `${INCOMING_REQUEST_NOTIFICATION_KEY_PREFIX}${chatId}`;
+}
+
+function shouldNotifyIncomingRequest(chatId) {
+    if (!chatId) {
+        return false;
+    }
+    return sessionStorage.getItem(getIncomingRequestNotifyKey(chatId)) !== "1";
+}
+
+function markIncomingRequestNotified(chatId) {
+    if (!chatId) {
+        return;
+    }
+    sessionStorage.setItem(getIncomingRequestNotifyKey(chatId), "1");
 }
 
 function getItemInfo(id) {
@@ -262,11 +282,12 @@ function bindBackButton() {
     });
 }
 
-function openIncomingChat(chatData) {
+function openIncomingChat(chatData, options = {}) {
     if (state.isLeaving || state.isRedirectingToChat) {
         return;
     }
 
+    const notify = options.notify === true;
     const partnerId = getPartnerIdFromChat(chatData, state.uid);
     const partnerName = partnerId
         ? chatData.participantNicknames?.[partnerId] ?? DEFAULT_PARTNER_NAME
@@ -275,11 +296,13 @@ function openIncomingChat(chatData) {
         partnerId ? `&partnerId=${encodeURIComponent(partnerId)}` : ""
     }`;
 
-    showNotification(
-        CHAT_OPENED_MESSAGE,
-        `${partnerName}님이 채팅을 열었습니다.`,
-        null,
-    );
+    if (notify && shouldNotifyIncomingRequest(chatData.chatId)) {
+        showNotification(
+            INCOMING_REQUEST_NOTIFICATION_TITLE,
+            `${partnerName}님이 교환 요청을 하였습니다.`,
+        );
+        markIncomingRequestNotified(chatData.chatId);
+    }
 
     state.isRedirectingToChat = true;
     stopRealtimeListeners();
@@ -304,7 +327,7 @@ async function maybeOpenExistingChat() {
         if (!chatData || state.isLeaving || state.isRedirectingToChat) {
             return false;
         }
-        openIncomingChat(chatData);
+        openIncomingChat(chatData, { notify: false });
         return true;
     } catch (error) {
         console.error("failed to recover opened chat:", error);
@@ -341,9 +364,13 @@ function listenIncomingRequests() {
         state.unsubscribeRequests();
     }
 
-    state.unsubscribeRequests = watchIncomingTradeRequests(state.uid, (chatData) => {
-        openIncomingChat(chatData);
-    });
+    state.unsubscribeRequests = watchIncomingTradeRequests(
+        state.uid,
+        (chatData) => {
+            openIncomingChat(chatData, { notify: true });
+        },
+        { emitInitial: false },
+    );
 }
 
 function listenMatches() {
