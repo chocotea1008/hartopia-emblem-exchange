@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>뜌타 휘장 교환소 - 매칭 목록</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;700;900&display=swap" rel="stylesheet">
+    <style>
+        /* Exchange Page Specific Styles */
+        .back-btn {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            background: rgba(255, 255, 255, 0.3);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 2px solid #fff;
+            color: #fff;
+            padding: 5px 12px;
+            border-radius: 12px;
+            font-size: 0.9rem;
+            font-weight: 800;
+            cursor: pointer;
+            z-index: 10;
+            transition: 0.2s;
+            box-shadow: 0 4px 0 rgba(0,0,0,0.1);
+        }
+        .back-btn:active { transform: translateY(2px); box-shadow: 0 2px 0 rgba(0,0,0,0.1); }
+        .back-btn:hover { background: rgba(255, 255, 255, 0.4); }
+
+        .exchange-card {
+            background: rgba(255, 255, 255, 0.5);
+            backdrop-filter: blur(15px);
+            border-radius: 25px;
+            border: 4px solid #fff;
+            padding: 1.2rem;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.05);
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .card-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px dashed rgba(255, 255, 255, 0.4);
+            padding-bottom: 0.6rem;
+        }
+
+        .user-meta { display: flex; align-items: center; gap: 0.8rem; }
+        .score-badge { 
+            background: var(--pop-yellow); 
+            color: var(--text-dark); 
+            padding: 2px 10px; 
+            border-radius: 10px; 
+            font-size: 0.8rem; 
+            font-weight: 800;
+            box-shadow: 0 2px 0 rgba(0,0,0,0.1);
+        }
+
+        .card-body {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1.5rem;
+        }
+
+        .exchange-diagram {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            gap: 0.8rem;
+        }
+
+        .item-group {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 18px;
+            padding: 0.8rem;
+        }
+
+        .group-label { 
+            font-size: 0.85rem; 
+            font-weight: 800; 
+            margin-bottom: 0.8rem; 
+            display: block; 
+            text-align: center;
+            white-space: nowrap; /* 줄바꿈 방지 */
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .label-give { color: var(--accent-sell); }
+        .label-get { color: var(--accent-buy); }
+
+        .items-mini-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            justify-content: center;
+        }
+
+        .mini-item-box {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .mini-badge {
+            width: 44px;
+            height: 44px;
+            background: #fff;
+            border-radius: 10px;
+            border: 2px solid #fff;
+            box-shadow: 0 3px 6px rgba(0,0,0,0.05);
+        }
+
+        .item-label {
+            font-size: 0.7rem;
+            font-weight: 800;
+            color: var(--text-dark);
+            white-space: nowrap;
+        }
+
+        .action-side {
+            flex-shrink: 0;
+            width: 140px;
+        }
+
+        .request-btn {
+            width: 100%;
+            height: 100px; /* 가로형 카드 높이에 맞춘 큰 버튼 */
+            background: linear-gradient(135deg, var(--pop-blue) 0%, #4cc9f0 100%);
+            color: #fff;
+            border: none;
+            border-radius: 20px;
+            font-weight: 900;
+            font-size: 1.1rem;
+            cursor: pointer;
+            box-shadow: 0 6px 0 #3a96b3;
+            border: 3px solid #fff;
+            transition: 0.2s;
+        }
+
+        .request-btn:active { transform: translateY(4px); box-shadow: 0 2px 0 #3a96b3; }
+
+        @media (max-width: 650px) {
+            .card-body { flex-direction: column; gap: 0.8rem; }
+            .action-side { width: 100%; display: flex; justify-content: center; }
+            .request-btn { 
+                width: 200px; /* 너비 다이어트 */
+                height: 44px; /* 높이 다이어트 */
+                font-size: 1rem; 
+                display: flex; 
+                align-items: center; 
+                justify-content: center;
+                white-space: nowrap;
+            }
+            .exchange-diagram { gap: 0.5rem; width: 100%; }
+            .item-group { padding: 0.6rem; }
+            .group-label { font-size: 0.8rem; margin-bottom: 0.6rem; }
+            .mini-badge { width: 38px; height: 38px; }
+            .items-mini-grid { gap: 8px; }
+        }
+
+        .empty-match {
+            text-align: center;
+            padding: 4rem 2rem;
+            color: rgba(255, 255, 255, 0.8);
+        }
+        .empty-match span { font-size: 4rem; display: block; margin-bottom: 1rem; }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <header class="app-header">
+            <button class="back-btn" onclick="location.href='index.html'">← 뒤로가기</button>
+            <button class="donate-btn" onclick="location.href='support.html'">❤️ 후원하기</button>
+            <div class="progress-pill">
+                <span class="progress-text">맞춤 교환 목록</span>
+            </div>
+            <p class="header-desc">
+                조건에 딱 맞는 교환 파트너를 찾았습니다!
+            </p>
+        </header>
+
+        <main class="category-stack" id="exchange-list">
+            <!-- Matches will be populated here -->
+             <div class="empty-match" id="loading-state">
+                <span>🔍</span>
+                <p>최적의 교환 상대를 찾는 중...</p>
+             </div>
+        </main>
+
+        <div class="pc-footer-container">
+            <div class="pc-footer-text">
+                <span class="tip-icon">✨</span>
+                다른 유저와 실시간 매칭된 결과입니다.
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="src/js/exchange.js"></script>
+</body>
+</html>

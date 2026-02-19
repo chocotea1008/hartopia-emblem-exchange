@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>뜌타 휘장 교환소 - 채팅</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;700;900&display=swap" rel="stylesheet">
+    <style>
+        /* Chat Page Specific Styles */
+        .chat-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            background: var(--bg-gradient);
+            width: 100%;
+            max-width: 600px; /* 기본은 아늑하게 */
+            margin: 0 auto;
+            box-shadow: 0 0 50px rgba(0,0,0,0.05);
+            border-left: 2px solid rgba(255,255,255,0.3);
+            border-right: 2px solid rgba(255,255,255,0.3);
+            transition: all 0.3s ease;
+        }
+
+        @media (max-width: 600px) {
+            .chat-container {
+                max-width: none;
+                border: none;
+                box-shadow: none;
+            }
+            .trade-summary { gap: 1rem; padding: 0.6rem 1rem; }
+            .mini-badge-chat { width: 36px; height: 36px; }
+            .chat-item-label { font-size: 0.6rem; }
+            .trade-arrow { font-size: 1.2rem; }
+        }
+
+        .chat-header {
+            padding: 1rem 1.5rem;
+            background: var(--pop-pink);
+            border-bottom: 3px solid #fff;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+            display: flex;
+            align-items: center;
+            position: relative;
+            flex-shrink: 0;
+            z-index: 10;
+        }
+
+        .back-btn {
+            background: rgba(255, 255, 255, 0.3);
+            border: 2px solid #fff;
+            color: #fff;
+            padding: 4px 10px;
+            border-radius: 10px;
+            font-weight: 800;
+            font-size: 0.8rem;
+            cursor: pointer;
+            margin-right: 1rem;
+        }
+
+        .partner-info {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .partner-name { font-size: 1.1rem; font-weight: 800; color: #fff; }
+        .partner-status { font-size: 0.75rem; color: rgba(255,255,255,0.8); }
+
+        .complete-btn-chat {
+            margin-left: auto;
+            background: linear-gradient(135deg, #ffd60a 0%, #ffc300 100%);
+            color: var(--text-dark);
+            border: 2px solid #fff;
+            padding: 8px 18px;
+            border-radius: 15px;
+            font-size: 1rem;
+            font-weight: 900;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(255, 195, 0, 0.3), inset 0 -2px 0 rgba(0,0,0,0.1);
+            transition: 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            text-shadow: 0 1px 0 rgba(255,255,255,0.5);
+        }
+        .complete-btn-chat:hover { transform: scale(1.05); box-shadow: 0 6px 20px rgba(255, 195, 0, 0.4); }
+        .complete-btn-chat:active { transform: translateY(2px) scale(0.98); box-shadow: 0 2px 5px rgba(255, 195, 0, 0.4); }
+
+        /* Trade Dashboard Bar */
+        .trade-summary {
+            background: rgba(255, 255, 255, 0.6);
+            backdrop-filter: blur(10px);
+            padding: 0.8rem 1.5rem;
+            border-bottom: 2px solid #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 2rem;
+            flex-shrink: 0;
+        }
+
+        .trade-item-flow {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .mini-badge-chat {
+            width: 44px;
+            height: 44px;
+            background: #fff;
+            border-radius: 10px;
+            border: 2px solid #fff;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            object-fit: contain;
+        }
+
+        .mini-item-chat {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .chat-item-label {
+            font-size: 0.75rem;
+            font-weight: 900;
+            color: var(--text-dark);
+            background: rgba(255, 255, 255, 0.8);
+            padding: 2px 6px;
+            border-radius: 6px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        }
+
+        .trade-arrow { font-size: 2rem; color: var(--pop-pink); font-weight: 900; }
+        .trade-label { font-size: 0.9rem; font-weight: 900; color: #555; margin-bottom: 8px; }
+        .item-stack-chat { display: flex; flex-direction: column; align-items: center; }
+        .badge-row-chat { display: flex; gap: 12px; }
+
+        /* Message Area */
+        .message-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1.5rem 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1.2rem;
+            scrollbar-width: none;
+        }
+        .message-list::-webkit-scrollbar { display: none; }
+
+        .msg-bubble {
+            max-width: 85%;
+            padding: 0.8rem 1.2rem;
+            border-radius: 20px;
+            font-size: 1.05rem;
+            font-weight: 700;
+            line-height: 1.4;
+            position: relative;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.03);
+            word-break: break-all;
+        }
+
+        .msg-me {
+            align-self: flex-end;
+            background: var(--pop-pink);
+            color: #fff;
+            border-bottom-right-radius: 4px;
+            border: 2px solid #fff;
+        }
+
+        .msg-partner {
+            align-self: flex-start;
+            background: #fff;
+            color: var(--text-dark);
+            border-bottom-left-radius: 4px;
+            border: 2px solid var(--pop-purple);
+        }
+
+        .msg-time {
+            font-size: 0.65rem;
+            color: rgba(0,0,0,0.3);
+            margin-top: 4px;
+            display: block;
+        }
+
+        .msg-me .msg-time { text-align: right; color: rgba(255,255,255,0.7); }
+
+        /* Input Area */
+        .chat-input-area {
+            padding: 1rem;
+            background: #fff;
+            border-top: 2px solid var(--pop-purple-light);
+            display: flex;
+            gap: 0.8rem;
+            align-items: center;
+            flex-shrink: 0;
+        }
+
+        .chat-input {
+            flex: 1;
+            background: var(--pop-purple-light);
+            border: none;
+            border-radius: 15px;
+            padding: 0.8rem 1.2rem;
+            font-family: inherit;
+            font-weight: 700;
+            font-size: 1rem;
+            color: var(--text-dark);
+            outline: none;
+        }
+
+        .send-btn {
+            width: 50px;
+            height: 50px;
+            background: var(--pop-pink);
+            border: none;
+            border-radius: 15px;
+            color: #fff;
+            font-size: 1.2rem;
+            cursor: pointer;
+            box-shadow: 0 4px 0 var(--pop-pink-dark);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .send-btn:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--pop-pink-dark); }
+
+        /* Confirmation Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(4px);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .modal-box {
+            background: #fff;
+            padding: 2rem;
+            border-radius: 25px;
+            width: 90%;
+            max-width: 350px;
+            text-align: center;
+            box-shadow: 0 15px 40px rgba(0,0,0,0.2);
+            border: 3px solid var(--pop-pink);
+            transform: scale(0.9);
+            transition: 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .modal-overlay.active { display: flex; }
+        .modal-overlay.active .modal-box { transform: scale(1); }
+
+        .modal-title { font-size: 1.2rem; font-weight: 900; color: var(--text-dark); margin-bottom: 1rem; line-height: 1.5; }
+        .modal-btns { display: flex; gap: 1rem; justify-content: center; margin-top: 1.5rem; }
+        
+        .m-btn {
+            padding: 0.8rem 1.5rem;
+            border-radius: 15px;
+            border: none;
+            font-weight: 900;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: 0.2s;
+            flex: 1;
+        }
+
+        .m-btn-no { background: #eee; color: #666; }
+        .m-btn-yes { background: var(--pop-pink); color: #fff; box-shadow: 0 4px 0 var(--pop-pink-dark); }
+        .m-btn:active { transform: translateY(2px); }
+
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <header class="chat-header">
+            <button class="back-btn" id="chat-back-btn">←</button>
+            <div class="partner-info">
+                <span class="partner-name" id="partner-name-display">파칭코왕</span>
+                <span class="partner-status">● 온라인</span>
+            </div>
+            <button class="complete-btn-chat" id="chat-complete-btn">교환 완료</button>
+        </header>
+
+        <div class="trade-summary" id="trade-dashboard">
+            <div class="trade-item-flow">
+                <div class="item-stack-chat" id="chat-give-items">
+                    <span class="trade-label">내가 줄 것</span>
+                    <div class="badge-row-chat"></div>
+                </div>
+                <div class="trade-arrow">⇄</div>
+                <div class="item-stack-chat" id="chat-get-items">
+                    <span class="trade-label">내가 받을 것</span>
+                    <div class="badge-row-chat"></div>
+                </div>
+            </div>
+        </div>
+
+        <main class="message-list" id="message-list">
+            <!-- Messages appear here -->
+        </main>
+
+        <div class="chat-input-area">
+            <input type="text" id="chat-input" class="chat-input" placeholder="메시지를 입력하세요..." autocomplete="off">
+            <button id="send-btn" class="send-btn">🚀</button>
+        </div>
+    </div>
+
+    <!-- Exit Confirmation Modal -->
+    <div class="modal-overlay" id="exit-modal">
+        <div class="modal-box">
+            <div class="modal-title">뒤로가시면 이 교환은<br>없던 일로 됩니다.<br>나가시겠습니까?</div>
+            <div class="modal-btns">
+                <button class="m-btn m-btn-no" id="modal-no">아니요</button>
+                <button class="m-btn m-btn-yes" id="modal-yes">예</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Success Confirmation Modal -->
+    <div class="modal-overlay" id="success-modal">
+        <div class="modal-box" style="border-color: var(--accent-sell);">
+            <div class="modal-title" style="color: var(--accent-sell);">✨ 교환 성공! ✨<br><br>교환이 성공되었습니다.</div>
+            <div class="modal-btns">
+                <button class="m-btn m-btn-yes" id="success-ok" style="background: var(--accent-sell); box-shadow: 0 4px 0 #3a96b3;">확인</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="src/js/chat.js"></script>
+</body>
+</html>

@@ -1,0 +1,276 @@
+import { items } from "../../js/data.js";
+import { db } from "../../firebase-config.js";
+import {
+    addDoc,
+    collection,
+    doc,
+    serverTimestamp,
+    setDoc,
+} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+import { ensureNotificationPermission } from "./permission.js";
+import { initAnonymousAuth, setUserStatus } from "./auth.js";
+import { getInitErrorHint } from "./error-hints.js";
+import {
+    getSelection,
+    hasValidSelection,
+    loadSelectionFromStorage,
+    saveSelection,
+    saveSelectionToStorage,
+} from "./db.js";
+import {
+    buildChatId,
+    getPartnerIdFromChat,
+    watchIncomingTradeRequests,
+    watchPotentialMatches,
+} from "./match.js";
+
+const elements = {
+    exchangeList: document.getElementById("exchange-list"),
+};
+
+const state = {
+    uid: null,
+    nickname: "",
+    selection: { giveItems: [], getItems: [] },
+    matches: [],
+    unsubscribeMatches: null,
+    unsubscribeRequests: null,
+};
+
+function showNotification(title, body, onClick) {
+    if (!("Notification" in window) || Notification.permission !== "granted") {
+        return;
+    }
+    const notification = new Notification(title, { body });
+    notification.onclick = () => {
+        window.focus();
+        if (typeof onClick === "function") {
+            onClick();
+        }
+    };
+}
+
+function getItemInfo(id) {
+    const found = items.find((item) => item.id === id);
+    if (!found) {
+        return { src: "", number: "?", label: id };
+    }
+    const label = found.categoryLabel
+        ? `${found.categoryLabel} ${found.number}`
+        : `${found.category ?? ""} ${found.number ?? ""}`.trim();
+    return {
+        src: found.src,
+        number: found.number,
+        label,
+    };
+}
+
+function renderEmpty(message) {
+    if (!elements.exchangeList) {
+        return;
+    }
+    elements.exchangeList.innerHTML = `
+        <div class="empty-match">
+            <span>🔍</span>
+            <p>${message}</p>
+        </div>
+    `;
+}
+
+function createItemMiniCard(itemId) {
+    const info = getItemInfo(itemId);
+    return `
+        <div class="mini-item-box">
+            <img src="${info.src}" class="mini-badge" alt="${info.label}">
+            <span class="item-label">${info.label}</span>
+        </div>
+    `;
+}
+
+function renderMatches() {
+    if (!elements.exchangeList) {
+        return;
+    }
+    if (!state.matches.length) {
+        renderEmpty("현재 조건에 맞는 파트너가 없습니다. 잠시 후 다시 확인해주세요.");
+        return;
+    }
+
+    elements.exchangeList.innerHTML = state.matches
+        .map(
+            (match) => `
+            <div class="exchange-card" data-match-uid="${match.uid}">
+                <div class="card-top">
+                    <div class="user-meta">
+                        <span class="user-name">👤 ${match.nickname}</span>
+                        <span class="score-badge">${match.score}개 일치</span>
+                    </div>
+                    <span class="match-time">실시간</span>
+                </div>
+                <div class="card-body">
+                    <div class="exchange-diagram">
+                        <div class="item-group">
+                            <span class="group-label label-give">내가 줄 것</span>
+                            <div class="items-mini-grid">
+                                ${match.giveItems.map((id) => createItemMiniCard(id)).join("")}
+                            </div>
+                        </div>
+                        <div class="item-group">
+                            <span class="group-label label-get">내가 받을 것</span>
+                            <div class="items-mini-grid">
+                                ${match.getItems.map((id) => createItemMiniCard(id)).join("")}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="action-side">
+                        <button class="request-btn" data-request-uid="${match.uid}">교환 요청</button>
+                    </div>
+                </div>
+            </div>
+        `,
+        )
+        .join("");
+}
+
+async function requestTrade(match) {
+    const chatId = buildChatId(state.uid, match.uid);
+    const chatRef = doc(db, "chats", chatId);
+    const participants = [state.uid, match.uid];
+    const participantNicknames = {
+        [state.uid]: state.nickname,
+        [match.uid]: match.nickname,
+    };
+
+    const selectionByUser = {
+        [state.uid]: {
+            giveItems: match.giveItems,
+            getItems: match.getItems,
+        },
+        [match.uid]: {
+            giveItems: match.getItems,
+            getItems: match.giveItems,
+        },
+    };
+
+    await setDoc(
+        chatRef,
+        {
+            participants,
+            participantNicknames,
+            selectionByUser,
+            lastMessage: "교환 요청이 도착했습니다",
+            lastSenderId: state.uid,
+            updatedAt: serverTimestamp(),
+            isCompleted: false,
+        },
+        { merge: true },
+    );
+
+    await addDoc(collection(chatRef, "messages"), {
+        senderId: state.uid,
+        text: "교환 요청이 도착했습니다",
+        type: "system",
+        createdAt: serverTimestamp(),
+    });
+
+    await setUserStatus(state.uid, "trading");
+    window.location.href = `chat.html?chatId=${encodeURIComponent(chatId)}&partnerId=${encodeURIComponent(match.uid)}`;
+}
+
+function bindRequestButtons() {
+    if (!elements.exchangeList) {
+        return;
+    }
+
+    elements.exchangeList.addEventListener("click", (event) => {
+        const button = event.target.closest("[data-request-uid]");
+        if (!button) {
+            return;
+        }
+        const targetUid = button.getAttribute("data-request-uid");
+        const targetMatch = state.matches.find((match) => match.uid === targetUid);
+        if (!targetMatch) {
+            return;
+        }
+        requestTrade(targetMatch).catch((error) => {
+            console.error(error);
+            alert("교환 요청 중 오류가 발생했습니다.");
+        });
+    });
+}
+
+function listenIncomingRequests() {
+    if (state.unsubscribeRequests) {
+        state.unsubscribeRequests();
+    }
+
+    state.unsubscribeRequests = watchIncomingTradeRequests(state.uid, (chatData) => {
+        const partnerId = getPartnerIdFromChat(chatData, state.uid);
+        const partnerName = partnerId
+            ? chatData.participantNicknames?.[partnerId] ?? "상대방"
+            : "상대방";
+
+        showNotification(
+            "교환 요청이 도착했습니다",
+            `${partnerName}님이 채팅을 열었습니다.`,
+            () => {
+                const nextUrl = `chat.html?chatId=${encodeURIComponent(chatData.chatId)}${
+                    partnerId ? `&partnerId=${encodeURIComponent(partnerId)}` : ""
+                }`;
+                window.location.href = nextUrl;
+            },
+        );
+    });
+}
+
+function listenMatches() {
+    if (state.unsubscribeMatches) {
+        state.unsubscribeMatches();
+    }
+
+    state.unsubscribeMatches = watchPotentialMatches({
+        uid: state.uid,
+        giveItems: state.selection.giveItems,
+        getItems: state.selection.getItems,
+        onUpdate: (matches) => {
+            state.matches = matches;
+            localStorage.setItem("emblem.matches", JSON.stringify(matches));
+            renderMatches();
+        },
+    });
+}
+
+async function resolveSelection() {
+    let selection = loadSelectionFromStorage();
+    if (!hasValidSelection(selection)) {
+        selection = await getSelection(state.uid);
+    }
+    state.selection = selection;
+    saveSelectionToStorage(selection);
+    await saveSelection(state.uid, selection);
+}
+
+async function init() {
+    try {
+        await ensureNotificationPermission();
+        const { uid, nickname } = await initAnonymousAuth();
+        state.uid = uid;
+        state.nickname = nickname;
+
+        await resolveSelection();
+        if (!hasValidSelection(state.selection)) {
+            renderEmpty("먼저 홈에서 아이템을 선택하고 매칭을 시작해주세요.");
+            return;
+        }
+
+        await setUserStatus(state.uid, "matching");
+        bindRequestButtons();
+        listenMatches();
+        listenIncomingRequests();
+    } catch (error) {
+        console.error("exchange init failed:", error);
+        renderEmpty(`매칭 목록을 불러오지 못했습니다.\n${getInitErrorHint(error)}`);
+    }
+}
+
+init();
