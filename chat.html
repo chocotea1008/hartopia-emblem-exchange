@@ -67,6 +67,21 @@
 
         .partner-name { font-size: 1.1rem; font-weight: 800; color: #fff; }
         .partner-status { font-size: 0.75rem; color: rgba(255,255,255,0.8); }
+        .my-nickname { font-size: 0.72rem; color: rgba(255,255,255,0.92); }
+
+        .presence-notice {
+            display: none;
+            background: rgba(255, 255, 255, 0.85);
+            color: #1f2937;
+            border-bottom: 2px solid #fff;
+            text-align: center;
+            font-size: 0.85rem;
+            font-weight: 800;
+            padding: 0.45rem 0.75rem;
+        }
+        .presence-notice.active {
+            display: block;
+        }
 
         .complete-btn-chat {
             margin-left: auto;
@@ -288,10 +303,12 @@
             <button class="back-btn" id="chat-back-btn">←</button>
             <div class="partner-info">
                 <span class="partner-name" id="partner-name-display">파칭코왕</span>
-                <span class="partner-status">● 온라인</span>
+                <span class="partner-status" id="partner-status-display">● 오프라인</span>
+                <span class="my-nickname" id="my-nickname-display">내 닉네임: -</span>
             </div>
             <button class="complete-btn-chat" id="chat-complete-btn">교환 완료 ✅</button>
         </header>
+        <div id="presence-notice" class="presence-notice"></div>
 
         <div class="trade-summary" id="trade-dashboard">
             <div class="trade-item-flow">

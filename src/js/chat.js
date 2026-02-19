@@ -24,6 +24,7 @@ const CHAT_OPENED_MESSAGE = "채팅방이 열렸습니다.";
 const CHAT_CANCELED_MESSAGE = "채팅이 닫혀 교환이 취소되었습니다.";
 const TRADE_COMPLETED_MESSAGE = "거래가 종료되었습니다. 나가셔도 좋습니다.";
 const COMPLETE_BUTTON_TEXT = "교환 완료 ✅";
+const PRESENCE_NOTICE_DURATION_MS = 4000;
 const MATCH_TTL_MS = 24 * 60 * 60 * 1000;
 const ACTIVE_USER_THRESHOLD_MS = 3 * 60 * 1000;
 
@@ -32,6 +33,9 @@ const elements = {
     chatInput: document.getElementById("chat-input"),
     sendBtn: document.getElementById("send-btn"),
     partnerName: document.getElementById("partner-name-display"),
+    partnerStatus: document.getElementById("partner-status-display"),
+    myNickname: document.getElementById("my-nickname-display"),
+    presenceNotice: document.getElementById("presence-notice"),
     giveContainer: document.querySelector("#chat-give-items .badge-row-chat"),
     getContainer: document.querySelector("#chat-get-items .badge-row-chat"),
     backBtn: document.getElementById("chat-back-btn"),
@@ -50,6 +54,10 @@ const state = {
     currentChatData: null,
     unsubscribeChat: null,
     unsubscribeMessages: null,
+    unsubscribePartnerPresence: null,
+    partnerPresenceUid: null,
+    partnerWasOnline: null,
+    presenceNoticeTimer: null,
     isRouting: false,
     isCancelling: false,
     isTradeHandled: false,
@@ -177,6 +185,79 @@ function getItemInfo(id) {
     };
 }
 
+function resolvePartnerName() {
+    if (!state.partnerId) {
+        return "교환 파트너";
+    }
+    return state.currentChatData?.participantNicknames?.[state.partnerId] ?? "교환 파트너";
+}
+
+function setPartnerStatusText(isOnline) {
+    if (!elements.partnerStatus) {
+        return;
+    }
+    elements.partnerStatus.textContent = isOnline ? "● 온라인" : "● 오프라인";
+}
+
+function showPresenceNotice(text) {
+    if (!elements.presenceNotice) {
+        return;
+    }
+
+    elements.presenceNotice.textContent = text;
+    elements.presenceNotice.classList.add("active");
+
+    if (state.presenceNoticeTimer) {
+        clearTimeout(state.presenceNoticeTimer);
+    }
+    state.presenceNoticeTimer = setTimeout(() => {
+        if (!elements.presenceNotice) {
+            return;
+        }
+        elements.presenceNotice.classList.remove("active");
+        elements.presenceNotice.textContent = "";
+        state.presenceNoticeTimer = null;
+    }, PRESENCE_NOTICE_DURATION_MS);
+}
+
+function subscribePartnerPresence() {
+    if (!state.partnerId || !state.chatRef) {
+        return;
+    }
+    if (state.partnerPresenceUid === state.partnerId && state.unsubscribePartnerPresence) {
+        return;
+    }
+    if (state.unsubscribePartnerPresence) {
+        state.unsubscribePartnerPresence();
+        state.unsubscribePartnerPresence = null;
+    }
+
+    state.partnerPresenceUid = state.partnerId;
+    state.partnerWasOnline = null;
+    state.unsubscribePartnerPresence = onSnapshot(
+        doc(db, "users", state.partnerId),
+        (snapshot) => {
+            if (!snapshot.exists()) {
+                return;
+            }
+
+            const partnerData = snapshot.data();
+            const isOnline = derivePresence(partnerData) === "online";
+            setPartnerStatusText(isOnline);
+
+            if (state.partnerWasOnline === null) {
+                state.partnerWasOnline = isOnline;
+                return;
+            }
+
+            if (!state.partnerWasOnline && isOnline) {
+                showPresenceNotice(`${resolvePartnerName()}님이 접속했습니다.`);
+            }
+            state.partnerWasOnline = isOnline;
+        },
+    );
+}
+
 function stopRealtimeListeners() {
     if (state.unsubscribeChat) {
         state.unsubscribeChat();
@@ -185,6 +266,20 @@ function stopRealtimeListeners() {
     if (state.unsubscribeMessages) {
         state.unsubscribeMessages();
         state.unsubscribeMessages = null;
+    }
+    if (state.unsubscribePartnerPresence) {
+        state.unsubscribePartnerPresence();
+        state.unsubscribePartnerPresence = null;
+    }
+    state.partnerPresenceUid = null;
+    state.partnerWasOnline = null;
+    if (state.presenceNoticeTimer) {
+        clearTimeout(state.presenceNoticeTimer);
+        state.presenceNoticeTimer = null;
+    }
+    if (elements.presenceNotice) {
+        elements.presenceNotice.classList.remove("active");
+        elements.presenceNotice.textContent = "";
     }
 }
 
@@ -672,12 +767,11 @@ function subscribeChat() {
                 (chatData.participants ?? []).find((uid) => uid !== state.uid) ?? null;
         }
 
-        const partnerName = state.partnerId
-            ? chatData.participantNicknames?.[state.partnerId] ?? "교환 파트너"
-            : "교환 파트너";
+        const partnerName = resolvePartnerName();
         if (elements.partnerName) {
             elements.partnerName.textContent = partnerName;
         }
+        subscribePartnerPresence();
 
         const mySelection = chatData.selectionByUser?.[state.uid] ?? {
             giveItems: [],
@@ -775,6 +869,10 @@ async function init() {
         const { uid, nickname } = await initAnonymousAuth();
         state.uid = uid;
         state.nickname = nickname;
+        if (elements.myNickname) {
+            elements.myNickname.textContent = `내 닉네임: ${nickname}`;
+        }
+        setPartnerStatusText(false);
 
         resolveChatContext();
         if (!state.chatId) {

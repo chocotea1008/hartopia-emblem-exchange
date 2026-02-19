@@ -12,6 +12,7 @@ import {
     watchSelection,
 } from "./db.js";
 import {
+    findLatestOpenChatForUser,
     getPartnerIdFromChat,
     startMatchingSession,
     watchIncomingTradeRequests,
@@ -48,6 +49,7 @@ const state = {
     matchingController: null,
     unsubscribeSelection: null,
     unsubscribeRequests: null,
+    chatRecoveryTimer: null,
 };
 
 function setMatchingActive(flag) {
@@ -262,6 +264,7 @@ function openExchangePage() {
     if (state.isRedirecting) {
         return;
     }
+    stopChatRecoveryPoll();
     setMatchingActive(false);
     state.isRedirecting = true;
     window.location.href = "exchange.html";
@@ -271,6 +274,7 @@ function openChatPage(chatId, partnerId) {
     if (state.isRedirecting) {
         return;
     }
+    stopChatRecoveryPoll();
 
     if (state.matchingController) {
         state.matchingController.stop();
@@ -285,6 +289,42 @@ function openChatPage(chatId, partnerId) {
 
     state.isRedirecting = true;
     window.location.href = nextUrl;
+}
+
+function stopChatRecoveryPoll() {
+    if (!state.chatRecoveryTimer) {
+        return;
+    }
+    clearInterval(state.chatRecoveryTimer);
+    state.chatRecoveryTimer = null;
+}
+
+async function maybeOpenExistingChat() {
+    if (!state.uid || state.isRedirecting) {
+        return;
+    }
+
+    try {
+        const chatData = await findLatestOpenChatForUser(state.uid);
+        if (!chatData || state.isRedirecting) {
+            return;
+        }
+        const partnerId = getPartnerIdFromChat(chatData, state.uid);
+        openChatPage(chatData.chatId, partnerId);
+    } catch (error) {
+        console.error("failed to recover opened chat:", error);
+    }
+}
+
+function startChatRecoveryPoll() {
+    if (state.chatRecoveryTimer || !state.uid) {
+        return;
+    }
+
+    maybeOpenExistingChat().catch(console.error);
+    state.chatRecoveryTimer = setInterval(() => {
+        maybeOpenExistingChat().catch(console.error);
+    }, 5000);
 }
 
 async function startMatchingFlow({ resume = false } = {}) {
@@ -469,6 +509,7 @@ async function init() {
         updateActionAreaUI();
         listenSelection();
         listenIncomingRequests();
+        startChatRecoveryPoll();
         await persistSelection();
 
         const hasSelection = hasValidSelection(selectionFromItems(state.items));

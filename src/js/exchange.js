@@ -20,6 +20,7 @@ import {
 import {
     buildChatId,
     cancelMatching,
+    findLatestOpenChatForUser,
     getPartnerIdFromChat,
     watchIncomingTradeRequests,
     watchPotentialMatches,
@@ -42,6 +43,7 @@ const state = {
     unsubscribeRequests: null,
     isLeaving: false,
     isRedirectingToChat: false,
+    chatRecoveryTimer: null,
 };
 
 function showNotification(title, body, onClick) {
@@ -227,6 +229,7 @@ function stopRealtimeListeners() {
         state.unsubscribeRequests();
         state.unsubscribeRequests = null;
     }
+    stopChatRecoveryPoll();
 }
 
 async function handleBackButtonClick() {
@@ -286,6 +289,41 @@ function openIncomingChat(chatData) {
     window.location.href = nextUrl;
 }
 
+function stopChatRecoveryPoll() {
+    if (!state.chatRecoveryTimer) {
+        return;
+    }
+    clearInterval(state.chatRecoveryTimer);
+    state.chatRecoveryTimer = null;
+}
+
+async function maybeOpenExistingChat() {
+    if (!state.uid || state.isLeaving || state.isRedirectingToChat) {
+        return;
+    }
+
+    try {
+        const chatData = await findLatestOpenChatForUser(state.uid);
+        if (!chatData || state.isLeaving || state.isRedirectingToChat) {
+            return;
+        }
+        openIncomingChat(chatData);
+    } catch (error) {
+        console.error("failed to recover opened chat:", error);
+    }
+}
+
+function startChatRecoveryPoll() {
+    if (!state.uid || state.chatRecoveryTimer) {
+        return;
+    }
+
+    maybeOpenExistingChat().catch(console.error);
+    state.chatRecoveryTimer = setInterval(() => {
+        maybeOpenExistingChat().catch(console.error);
+    }, 5000);
+}
+
 function listenIncomingRequests() {
     if (state.unsubscribeRequests) {
         state.unsubscribeRequests();
@@ -341,6 +379,7 @@ async function init() {
         bindRequestButtons();
         listenMatches();
         listenIncomingRequests();
+        startChatRecoveryPoll();
     } catch (error) {
         console.error("exchange init failed:", error);
         renderEmpty(`매칭 목록을 불러오지 못했습니다.\n${getInitErrorHint(error)}`);

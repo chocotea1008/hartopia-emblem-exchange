@@ -456,3 +456,33 @@ export function watchIncomingTradeRequests(uid, onRequest, options = {}) {
         }
     });
 }
+
+export async function findLatestOpenChatForUser(uid) {
+    const chatsSnapshot = await getDocs(
+        query(collection(db, "chats"), where("participants", "array-contains", uid)),
+    );
+
+    let latest = null;
+    let latestUpdatedAtMs = 0;
+
+    for (const chatDoc of chatsSnapshot.docs) {
+        const chatData = chatDoc.data();
+        if (chatData?.isCompleted || chatData?.isCanceled) {
+            continue;
+        }
+        if (!isChatOpenSignal(chatData)) {
+            continue;
+        }
+
+        const updatedAtMs = toMillis(chatData.updatedAt);
+        if (!latest || updatedAtMs >= latestUpdatedAtMs) {
+            latest = {
+                chatId: chatDoc.id,
+                ...chatData,
+            };
+            latestUpdatedAtMs = updatedAtMs;
+        }
+    }
+
+    return latest;
+}
