@@ -299,17 +299,19 @@ function stopChatRecoveryPoll() {
 
 async function maybeOpenExistingChat() {
     if (!state.uid || state.isLeaving || state.isRedirectingToChat) {
-        return;
+        return false;
     }
 
     try {
         const chatData = await findLatestOpenChatForUser(state.uid);
         if (!chatData || state.isLeaving || state.isRedirectingToChat) {
-            return;
+            return false;
         }
         openIncomingChat(chatData);
+        return true;
     } catch (error) {
         console.error("failed to recover opened chat:", error);
+        return false;
     }
 }
 
@@ -368,6 +370,11 @@ async function init() {
         const { uid, nickname } = await initAnonymousAuth();
         state.uid = uid;
         state.nickname = nickname;
+
+        const redirectedToChat = await maybeOpenExistingChat();
+        if (redirectedToChat) {
+            return;
+        }
 
         await resolveSelection();
         if (!hasValidSelection(state.selection)) {

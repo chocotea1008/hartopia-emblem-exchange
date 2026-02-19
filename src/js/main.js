@@ -302,18 +302,20 @@ function stopChatRecoveryPoll() {
 
 async function maybeOpenExistingChat() {
     if (!state.uid || state.isRedirecting) {
-        return;
+        return false;
     }
 
     try {
         const chatData = await findLatestOpenChatForUser(state.uid);
         if (!chatData || state.isRedirecting) {
-            return;
+            return false;
         }
         const partnerId = getPartnerIdFromChat(chatData, state.uid);
         openChatPage(chatData.chatId, partnerId);
+        return true;
     } catch (error) {
         console.error("failed to recover opened chat:", error);
+        return false;
     }
 }
 
@@ -369,11 +371,6 @@ async function startMatchingFlow({ resume = false } = {}) {
             },
             onMatchFound: (match, matches) => {
                 localStorage.setItem("emblem.matches", JSON.stringify(matches));
-                showNotification(
-                    "✨ 매칭 성공! 교환 파트너 발견!",
-                    `${match.nickname}님과 조건이 맞습니다.`,
-                    openExchangePage,
-                );
                 openExchangePage();
             },
             onExpired: async () => {
@@ -506,6 +503,11 @@ async function init() {
         if (elements.myNicknameChip) {
             elements.myNicknameChip.textContent = `👤 ${nickname}`;
             elements.myNicknameChip.title = nickname;
+        }
+
+        const redirectedToChat = await maybeOpenExistingChat();
+        if (redirectedToChat) {
+            return;
         }
 
         maybeApplyStoredSelection();

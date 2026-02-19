@@ -3,6 +3,7 @@ import { db } from "../../firebase-config.js";
 import {
     addDoc,
     collection,
+    deleteField,
     doc,
     getDoc,
     getDocs,
@@ -17,13 +18,12 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 import { ensureNotificationPermission } from "./permission.js";
 import { initAnonymousAuth, setUserStatus } from "./auth.js";
-import { buildChatId } from "./match.js";
+import { buildChatId, findLatestOpenChatForUser } from "./match.js";
 import { getInitErrorHint } from "./error-hints.js";
 
 const CHAT_OPENED_MESSAGE = "채팅방이 열렸습니다.";
 const CHAT_CANCELED_MESSAGE = "채팅이 닫혀 교환이 취소되었습니다.";
 const TRADE_COMPLETED_MESSAGE = "거래가 종료되었습니다. 나가셔도 좋습니다.";
-const COMPLETE_BUTTON_TEXT = "교환 완료 ✅";
 const PRESENCE_NOTICE_DURATION_MS = 4000;
 const MATCH_TTL_MS = 24 * 60 * 60 * 1000;
 const ACTIVE_USER_THRESHOLD_MS = 3 * 60 * 1000;
@@ -34,7 +34,6 @@ const elements = {
     sendBtn: document.getElementById("send-btn"),
     partnerName: document.getElementById("partner-name-display"),
     partnerStatus: document.getElementById("partner-status-display"),
-    myNickname: document.getElementById("my-nickname-display"),
     presenceNotice: document.getElementById("presence-notice"),
     giveContainer: document.querySelector("#chat-give-items .badge-row-chat"),
     getContainer: document.querySelector("#chat-get-items .badge-row-chat"),
@@ -305,14 +304,14 @@ function updateCompleteButtonState(chatData) {
     const myCompleted = Boolean(completedBy[state.uid]);
     const allCompleted =
         participants.length >= 2 && participants.every((id) => Boolean(completedBy[id]));
-    const disabled = Boolean(chatData?.isCanceled || chatData?.isCompleted || myCompleted);
+    const disabled = Boolean(chatData?.isCanceled || chatData?.isCompleted);
 
-    elements.completeBtn.textContent = COMPLETE_BUTTON_TEXT;
     elements.completeBtn.disabled = disabled;
     elements.completeBtn.classList.toggle(
         "is-confirmed",
         myCompleted || allCompleted || Boolean(chatData?.isCompleted),
     );
+    elements.completeBtn.setAttribute("aria-pressed", myCompleted ? "true" : "false");
 }
 
 function renderItemStack(itemIds, container) {
@@ -583,7 +582,22 @@ async function completeTrade() {
     if (chatData?.isCompleted || chatData?.isCanceled) {
         return;
     }
+
     if (chatData?.completedBy?.[state.uid]) {
+        const unmarkMessage = `${state.nickname}님이 교환 완료를 취소했습니다.`;
+        await updateDoc(state.chatRef, {
+            [`completedBy.${state.uid}`]: deleteField(),
+            lastMessage: unmarkMessage,
+            lastSenderId: state.uid,
+            updatedAt: serverTimestamp(),
+        });
+
+        await addDoc(collection(state.chatRef, "messages"), {
+            senderId: state.uid,
+            text: unmarkMessage,
+            type: "system",
+            createdAt: serverTimestamp(),
+        });
         return;
     }
 
@@ -663,45 +677,6 @@ async function cancelTradeByUser() {
     } finally {
         state.isCancelling = false;
     }
-}
-
-function sendCloseSignalOnPageClose() {
-    if (
-        !state.chatRef ||
-        !state.currentChatData ||
-        state.isRouting ||
-        state.isTradeHandled ||
-        state.isCancelling ||
-        state.closeSignalSent
-    ) {
-        return;
-    }
-    if (state.currentChatData.isCompleted || state.currentChatData.isCanceled) {
-        return;
-    }
-
-    state.closeSignalSent = true;
-    updateDoc(state.chatRef, {
-        isCanceled: true,
-        chatOpened: false,
-        canceledBy: state.uid,
-        canceledAt: serverTimestamp(),
-        lastMessage: CHAT_CANCELED_MESSAGE,
-        lastSenderId: state.uid,
-        updatedAt: serverTimestamp(),
-    }).catch(() => {});
-
-    addDoc(collection(state.chatRef, "messages"), {
-        senderId: state.uid,
-        text: CHAT_CANCELED_MESSAGE,
-        type: "system",
-        createdAt: serverTimestamp(),
-    }).catch(() => {});
-}
-
-function bindLifecycleCloseHandlers() {
-    window.addEventListener("pagehide", sendCloseSignalOnPageClose);
-    window.addEventListener("beforeunload", sendCloseSignalOnPageClose);
 }
 
 function bindEvents() {
@@ -869,23 +844,26 @@ async function init() {
         const { uid, nickname } = await initAnonymousAuth();
         state.uid = uid;
         state.nickname = nickname;
-        if (elements.myNickname) {
-            elements.myNickname.textContent = `내 닉네임: ${nickname}`;
-        }
         setPartnerStatusText(false);
 
         resolveChatContext();
         if (!state.chatId) {
-            alert("채팅 정보를 찾을 수 없습니다. 매칭 목록으로 이동합니다.");
-            window.location.href = "exchange.html";
-            return;
+            const recoveredChat = await findLatestOpenChatForUser(state.uid);
+            if (recoveredChat) {
+                state.chatId = recoveredChat.chatId;
+                state.partnerId =
+                    (recoveredChat.participants ?? []).find((uid) => uid !== state.uid) ?? null;
+            } else {
+                alert("채팅 정보를 찾을 수 없습니다. 매칭 목록으로 이동합니다.");
+                window.location.href = "exchange.html";
+                return;
+            }
         }
 
         await setUserStatus(state.uid, "trading");
         state.chatRef = doc(db, "chats", state.chatId);
 
         bindEvents();
-        bindLifecycleCloseHandlers();
         await ensureChatExists();
         setChatInputEnabled(true);
         updateCompleteButtonState(null);

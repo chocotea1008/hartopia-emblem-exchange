@@ -13,7 +13,8 @@
         .chat-container {
             display: flex;
             flex-direction: column;
-            height: 100vh;
+            height: 100dvh;
+            min-height: 100dvh;
             background: var(--bg-gradient);
             width: 100%;
             max-width: 600px; /* 기본은 아늑하게 */
@@ -22,6 +23,13 @@
             border-left: 2px solid rgba(255,255,255,0.3);
             border-right: 2px solid rgba(255,255,255,0.3);
             transition: all 0.3s ease;
+        }
+
+        @supports not (height: 100dvh) {
+            .chat-container {
+                height: 100vh;
+                min-height: 100vh;
+            }
         }
 
         @media (max-width: 600px) {
@@ -34,6 +42,16 @@
             .mini-badge-chat { width: 36px; height: 36px; }
             .chat-item-label { font-size: 0.6rem; }
             .trade-arrow { font-size: 1.2rem; }
+            .chat-input-area {
+                gap: 0.55rem;
+                padding: 0.85rem 0.85rem calc(0.95rem + env(safe-area-inset-bottom));
+            }
+            .send-btn {
+                width: 58px;
+                height: 58px;
+                flex-basis: 58px;
+                font-size: 1.38rem;
+            }
         }
 
         .chat-header {
@@ -67,7 +85,6 @@
 
         .partner-name { font-size: 1.1rem; font-weight: 800; color: #fff; }
         .partner-status { font-size: 0.75rem; color: rgba(255,255,255,0.8); }
-        .my-nickname { font-size: 0.72rem; color: rgba(255,255,255,0.92); }
 
         .presence-notice {
             display: none;
@@ -88,20 +105,48 @@
             background: #d1d5db;
             color: #374151;
             border: 2px solid #fff;
-            padding: 8px 18px;
+            padding: 7px 14px;
             border-radius: 15px;
-            font-size: 1rem;
+            font-size: 0.98rem;
             font-weight: 900;
             cursor: pointer;
             box-shadow: 0 4px 10px rgba(0,0,0,0.12);
             transition: 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
         }
         .complete-btn-chat:hover { transform: translateY(-1px); }
         .complete-btn-chat:active { transform: translateY(1px); }
+        .complete-btn-label { line-height: 1; }
+        .complete-btn-icon-wrap {
+            width: 19px;
+            height: 19px;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(17, 24, 39, 0.18);
+        }
+        .complete-btn-icon {
+            width: 12px;
+            height: 12px;
+            stroke: rgba(255,255,255,0.95);
+            stroke-width: 3;
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
         .complete-btn-chat.is-confirmed {
             background: linear-gradient(135deg, #ffd60a 0%, #ffc300 100%);
             color: var(--text-dark);
             box-shadow: 0 4px 15px rgba(255, 195, 0, 0.3), inset 0 -2px 0 rgba(0,0,0,0.1);
+        }
+        .complete-btn-chat.is-confirmed .complete-btn-icon-wrap {
+            background: rgba(55, 48, 163, 0.22);
+        }
+        .complete-btn-chat.is-confirmed .complete-btn-icon {
+            stroke: #ffffff;
         }
         .complete-btn-chat:disabled {
             cursor: not-allowed;
@@ -211,7 +256,7 @@
 
         /* Input Area */
         .chat-input-area {
-            padding: 1rem;
+            padding: 1rem 1rem calc(1rem + env(safe-area-inset-bottom));
             background: #fff;
             border-top: 2px solid var(--pop-purple-light);
             display: flex;
@@ -221,7 +266,8 @@
         }
 
         .chat-input {
-            flex: 1;
+            flex: 1 1 auto;
+            min-width: 0;
             background: var(--pop-purple-light);
             border: none;
             border-radius: 15px;
@@ -234,13 +280,14 @@
         }
 
         .send-btn {
-            width: 50px;
-            height: 50px;
+            width: 60px;
+            height: 60px;
+            flex: 0 0 60px;
             background: var(--pop-pink);
             border: none;
             border-radius: 15px;
             color: #fff;
-            font-size: 1.2rem;
+            font-size: 1.45rem;
             cursor: pointer;
             box-shadow: 0 4px 0 var(--pop-pink-dark);
             display: flex;
@@ -304,9 +351,15 @@
             <div class="partner-info">
                 <span class="partner-name" id="partner-name-display">파칭코왕</span>
                 <span class="partner-status" id="partner-status-display">● 오프라인</span>
-                <span class="my-nickname" id="my-nickname-display">내 닉네임: -</span>
             </div>
-            <button class="complete-btn-chat" id="chat-complete-btn">교환 완료 ✅</button>
+            <button class="complete-btn-chat" id="chat-complete-btn">
+                <span class="complete-btn-label">교환 완료</span>
+                <span class="complete-btn-icon-wrap" aria-hidden="true">
+                    <svg class="complete-btn-icon" viewBox="0 0 16 16" focusable="false" aria-hidden="true">
+                        <path d="M3.2 8.5L6.4 11.5L12.8 4.9"></path>
+                    </svg>
+                </span>
+            </button>
         </header>
         <div id="presence-notice" class="presence-notice"></div>
 

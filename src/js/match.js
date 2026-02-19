@@ -152,17 +152,6 @@ function sortMatches(matches) {
     });
 }
 
-function notifyMatchFound(match) {
-    if (!("Notification" in window) || Notification.permission !== "granted") {
-        return;
-    }
-    const notification = new Notification("✨ 매칭 성공! 교환 파트너 발견!", {
-        body: `${match.nickname}님과 ${match.score}개 조건이 일치합니다.`,
-        tag: `match-${match.uid}`,
-    });
-    notification.onclick = () => window.focus();
-}
-
 function matchingWritePayload({ presence, activity, selection, withStartAt }) {
     const payload = {
         presence,
@@ -338,7 +327,6 @@ export async function startMatchingSession({
 
         const newMatch = matches.find((match) => !seenMatches.has(match.uid));
         if (newMatch) {
-            notifyMatchFound(newMatch);
             onMatchFound?.(newMatch, matches);
         }
         for (const match of matches) {
@@ -457,7 +445,8 @@ export function watchIncomingTradeRequests(uid, onRequest, options = {}) {
     });
 }
 
-export async function findLatestOpenChatForUser(uid) {
+export async function findLatestOpenChatForUser(uid, options = {}) {
+    const requireOpenSignal = options.requireOpenSignal === true;
     const chatsSnapshot = await getDocs(
         query(collection(db, "chats"), where("participants", "array-contains", uid)),
     );
@@ -470,7 +459,7 @@ export async function findLatestOpenChatForUser(uid) {
         if (chatData?.isCompleted || chatData?.isCanceled) {
             continue;
         }
-        if (!isChatOpenSignal(chatData)) {
+        if (requireOpenSignal && !isChatOpenSignal(chatData)) {
             continue;
         }
 
