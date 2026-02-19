@@ -25,7 +25,8 @@
 body {
     background: var(--bg-gradient);
     color: var(--text-dark);
-    height: 100vh;
+    height: 100dvh;
+    min-height: 100dvh;
     overflow: hidden;
     display: flex;
     justify-content: center;
@@ -34,7 +35,8 @@ body {
 .app-container {
     width: 100%;
     max-width: 800px; /* 7개 배치를 위한 최적 너비 */
-    height: 100vh;
+    height: 100dvh;
+    min-height: 100dvh;
     display: flex;
     flex-direction: column;
     position: relative;
@@ -253,7 +255,7 @@ body {
 
 /* 3. Action Area & Matching Section */
 .action-area {
-    padding: 1rem;
+    padding: 1rem 1rem calc(1rem + env(safe-area-inset-bottom));
     background: rgba(255, 255, 255, 0.6);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
@@ -262,7 +264,7 @@ body {
     justify-content: center;
     flex-shrink: 0;
     z-index: 200;
-    min-height: 86px; /* Ensure consistent height between states */
+    min-height: calc(86px + env(safe-area-inset-bottom)); /* Ensure consistent height between states */
 }
 
 @keyframes aurora {
@@ -436,6 +438,7 @@ body {
 
 .donate-btn:hover { background: var(--pop-pink-dark); transform: scale(1.05); }
 .donate-btn:active { transform: translateY(2px); }
+.donate-btn .btn-emoji { font-size: 1.05em; line-height: 1; }
 
 /* Help Button */
 .help-btn {
@@ -463,6 +466,19 @@ body {
 
 .help-btn:hover { background: #fff; transform: scale(1.05); box-shadow: 0 6px 20px rgba(0,0,0,0.1); }
 .help-btn:active { transform: translateY(2px); }
+.help-btn .btn-emoji { font-size: 1.05em; line-height: 1; }
+
+@supports not (height: 100dvh) {
+    body {
+        height: 100vh;
+        min-height: 100vh;
+    }
+
+    .app-container {
+        height: 100vh;
+        min-height: 100vh;
+    }
+}
 
 /* Help Modal Specifics */
 .help-content {
@@ -515,9 +531,42 @@ body {
 .ex-badge { width: 20px; height: 20px; background: #eee; border-radius: 50%; border: 1px solid #ccc; }
 .ex-arrow { color: var(--pop-pink); font-weight: 900; font-size: 0.8rem; }
 
-@media (max-width: 400px) {
-    .donate-btn { padding: 5px 8px; font-size: 0.75rem; top: 10px; right: 10px; }
-    .help-btn { font-size: 0.75rem; top: 10px; left: 10px; padding: 5px 8px; width: auto; height: auto; }
+@media (max-width: 600px) {
+    .app-header {
+        padding-left: 0.75rem;
+        padding-right: 0.75rem;
+    }
+
+    .help-btn,
+    .donate-btn {
+        top: 10px;
+        width: 38px;
+        height: 38px;
+        padding: 0;
+        border-radius: 50%;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1rem;
+    }
+
+    .help-btn { left: 10px; }
+    .donate-btn { right: 10px; }
+
+    .help-btn .btn-label,
+    .donate-btn .btn-label {
+        display: none;
+    }
+
+    .action-area {
+        padding: 0.75rem 0.75rem calc(0.75rem + env(safe-area-inset-bottom));
+        min-height: calc(80px + env(safe-area-inset-bottom));
+    }
+
+    .pop-button {
+        height: 50px;
+        font-size: 1.15rem;
+    }
 }
 
 /* Global Modal Styles */

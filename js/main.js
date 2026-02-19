@@ -43,10 +43,15 @@ const elements = {
 };
 
 function updateHeaderText() {
-    if (state.mode === 'buy') {
-        elements.instructionText.innerHTML = '당신이 <b>구하고자하는</b> 휘장을 선택하세요.';
-    } else {
-        elements.instructionText.innerHTML = '당신이 <b>중복 보유중인</b> 휘장을 선택하세요.';
+    const textEl = document.getElementById('instruction-text'); // 직접 조회
+    if (textEl) {
+        if (state.isHybridMode) {
+            textEl.innerHTML = '좌클릭은 <span style="color:var(--accent-buy)">구매</span>, 우클릭은 <span style="color:var(--accent-sell)">판매</span> 품목이 됩니다.';
+        } else if (state.mode === 'buy') {
+            textEl.innerHTML = '당신이 <b>필요한</b> 휘장을 선택하세요.';
+        } else {
+            textEl.innerHTML = '당신이 <b>중복 보유중인</b> 휘장을 선택하세요.';
+        }
     }
 }
 
@@ -96,8 +101,9 @@ function init() {
         elements.resetBtn.addEventListener('click', () => {
             state.isHybridMode = false;
             updateModeUI();
+            updateHeaderText(); // 문구 갱신 추가
             resetMatchingState();
-            setCookie('userSelection', state.items); // 쿠키 업데이트
+            setCookie('userSelection', state.items);
             render();
         });
     }
@@ -166,6 +172,7 @@ function handleRightClick(item, e) {
     if (!state.isHybridMode) {
         state.isHybridMode = true;
         updateModeUI();
+        updateHeaderText(); // 즉시 문구 변경
     }
     item.status = item.status === 'sell' ? 'center' : 'sell';
     resetMatchingState();

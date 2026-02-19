@@ -15,7 +15,8 @@ import { db } from "../../firebase-config.js";
 
 const MATCH_TTL_MS = 24 * 60 * 60 * 1000;
 const ACTIVE_USER_THRESHOLD_MS = 3 * 60 * 1000;
-const MATCH_REQUEST_MESSAGE = "교환 요청이 도착했습니다";
+const CHAT_OPENED_MESSAGE = "채팅방이 열렸습니다.";
+const LEGACY_MATCH_REQUEST_MESSAGE = "교환 요청이 도착했습니다";
 
 const PRESENCE_ONLINE = "online";
 const PRESENCE_OFFLINE = "offline";
@@ -70,6 +71,32 @@ function toMillis(timestampLike) {
     }
     const parsed = Date.parse(timestampLike);
     return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function isChatOpenSignal(chatData) {
+    if (chatData?.chatOpened === true) {
+        return true;
+    }
+    if (typeof chatData?.lastMessage !== "string") {
+        return false;
+    }
+    return (
+        chatData.lastMessage.includes(CHAT_OPENED_MESSAGE) ||
+        chatData.lastMessage.includes(LEGACY_MATCH_REQUEST_MESSAGE)
+    );
+}
+
+function shouldNotifyIncomingChat(chatData, nowUpdatedAt, prevUpdatedAt, isInitial) {
+    if (chatData?.isCompleted || chatData?.isCanceled) {
+        return false;
+    }
+    if (!isChatOpenSignal(chatData)) {
+        return false;
+    }
+    if (!isInitial && nowUpdatedAt <= prevUpdatedAt) {
+        return false;
+    }
+    return true;
 }
 
 function intersect(left, right) {
@@ -364,7 +391,8 @@ export function watchPotentialMatches({ uid, giveItems, getItems, onUpdate }) {
     });
 }
 
-export function watchIncomingTradeRequests(uid, onRequest) {
+export function watchIncomingTradeRequests(uid, onRequest, options = {}) {
+    const emitInitial = options.emitInitial !== false;
     const chatsQuery = query(
         collection(db, "chats"),
         where("participants", "array-contains", uid),
@@ -375,9 +403,31 @@ export function watchIncomingTradeRequests(uid, onRequest) {
 
     return onSnapshot(chatsQuery, (snapshot) => {
         if (!isBootstrapped) {
+            const initialCandidates = [];
             for (const chatDoc of snapshot.docs) {
-                seenUpdateAt.set(chatDoc.id, toMillis(chatDoc.data().updatedAt));
+                const chatData = chatDoc.data();
+                const nowUpdatedAt = toMillis(chatData.updatedAt);
+                seenUpdateAt.set(chatDoc.id, nowUpdatedAt);
+
+                if (
+                    emitInitial &&
+                    shouldNotifyIncomingChat(chatData, nowUpdatedAt, 0, true)
+                ) {
+                    initialCandidates.push({
+                        chatId: chatDoc.id,
+                        ...chatData,
+                        __updatedAtMs: nowUpdatedAt,
+                    });
+                }
             }
+
+            if (emitInitial && initialCandidates.length > 0) {
+                initialCandidates.sort((a, b) => b.__updatedAtMs - a.__updatedAtMs);
+                const latest = initialCandidates[0];
+                delete latest.__updatedAtMs;
+                onRequest?.(latest);
+            }
+
             isBootstrapped = true;
             return;
         }
@@ -393,19 +443,9 @@ export function watchIncomingTradeRequests(uid, onRequest) {
             const prevUpdatedAt = seenUpdateAt.get(change.doc.id) ?? 0;
             seenUpdateAt.set(change.doc.id, nowUpdatedAt);
 
-            if (chatData.isCompleted) {
-                continue;
-            }
-            if (chatData.lastSenderId === uid) {
-                continue;
-            }
-            if (nowUpdatedAt <= prevUpdatedAt) {
-                continue;
-            }
-            if (typeof chatData.lastMessage !== "string") {
-                continue;
-            }
-            if (!chatData.lastMessage.includes(MATCH_REQUEST_MESSAGE)) {
+            if (
+                !shouldNotifyIncomingChat(chatData, nowUpdatedAt, prevUpdatedAt, false)
+            ) {
                 continue;
             }
 

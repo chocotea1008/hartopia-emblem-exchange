@@ -18,10 +18,13 @@ import {
 } from "./match.js";
 
 const MATCHING_ACTIVE_STORAGE_KEY = "emblem.matching.active";
+const CHAT_OPENED_MESSAGE = "채팅방이 열렸습니다.";
+const DEFAULT_PARTNER_NAME = "상대방";
 
 const elements = {
     mainToggle: document.getElementById("mode-switch"),
     toggleContainer: document.querySelector(".toggle-container"),
+    instructionText: document.getElementById("instruction-text"),
     resetBtn: document.getElementById("reset-mode-btn"),
     categoryContainer: document.getElementById("category-container"),
     completeBtn: document.getElementById("complete-btn"),
@@ -59,6 +62,7 @@ function showNotification(title, body, onClick) {
     if (!("Notification" in window) || Notification.permission !== "granted") {
         return;
     }
+
     const notification = new Notification(title, { body });
     notification.onclick = () => {
         window.focus();
@@ -87,11 +91,33 @@ function updateModeUI() {
     }
 }
 
+function updateInstructionText() {
+    if (!elements.instructionText) {
+        return;
+    }
+
+    if (state.isHybridMode) {
+        elements.instructionText.textContent =
+            "토글 모드: 좌클릭은 구매 품목, 우클릭은 판매 품목이 됩니다.";
+        return;
+    }
+
+    if (state.mode === "sell") {
+        elements.instructionText.textContent =
+            "당신이 중복 보유중인 휘장을 선택하세요.";
+        return;
+    }
+
+    elements.instructionText.textContent =
+        "당신이 필요한 휘장을 선택하세요.";
+}
+
 function getCategoryLabel(categoryKey) {
     const found = state.items.find((item) => item.category === categoryKey);
     if (found?.categoryLabel) {
         return found.categoryLabel;
     }
+
     if (categoryKey === "shiny") {
         return "빛나는";
     }
@@ -127,6 +153,7 @@ function handleItemClick(item) {
         : state.mode === "sell"
           ? "sell"
           : "buy";
+
     item.status = item.status === targetStatus ? "center" : targetStatus;
     render();
     persistSelection().catch(console.error);
@@ -134,25 +161,29 @@ function handleItemClick(item) {
 
 function handleRightClick(item, event) {
     event.preventDefault();
+
     if (!state.isHybridMode) {
         state.isHybridMode = true;
         updateModeUI();
     }
+
     item.status = item.status === "sell" ? "center" : "sell";
     render();
     persistSelection().catch(console.error);
 }
 
 function render() {
+    updateInstructionText();
+
     if (!elements.categoryContainer) {
         return;
     }
     elements.categoryContainer.innerHTML = "";
 
     const categoryOrder = ["shiny", "nebula", "rainbow"];
-
     for (const categoryKey of categoryOrder) {
         const categoryItems = state.items.filter((item) => item.category === categoryKey);
+
         const panel = document.createElement("div");
         panel.className = "category-panel";
 
@@ -236,6 +267,26 @@ function openExchangePage() {
     window.location.href = "exchange.html";
 }
 
+function openChatPage(chatId, partnerId) {
+    if (state.isRedirecting) {
+        return;
+    }
+
+    if (state.matchingController) {
+        state.matchingController.stop();
+        state.matchingController = null;
+    }
+    setMatchingActive(false);
+    stopMatchingUI();
+
+    const nextUrl = `chat.html?chatId=${encodeURIComponent(chatId)}${
+        partnerId ? `&partnerId=${encodeURIComponent(partnerId)}` : ""
+    }`;
+
+    state.isRedirecting = true;
+    window.location.href = nextUrl;
+}
+
 async function startMatchingFlow({ resume = false } = {}) {
     if (!state.uid || state.matchingController) {
         return;
@@ -253,7 +304,7 @@ async function startMatchingFlow({ resume = false } = {}) {
     updateActionAreaUI();
     setMatchingActive(true);
     if (elements.matchingText) {
-        elements.matchingText.textContent = "조건이 맞는 파트너를 탐색 중...";
+        elements.matchingText.textContent = "조건에 맞는 파트너를 탐색 중...";
     }
 
     try {
@@ -265,15 +316,21 @@ async function startMatchingFlow({ resume = false } = {}) {
             onUpdate: (matches) => {
                 if (matches.length === 0) {
                     if (elements.matchingText) {
-                        elements.matchingText.textContent = "조건이 맞는 파트너를 기다리는 중...";
+                        elements.matchingText.textContent = "조건에 맞는 파트너를 기다리는 중...";
                     }
                     return;
                 }
 
                 localStorage.setItem("emblem.matches", JSON.stringify(matches));
+                if (elements.matchingText) {
+                    elements.matchingText.textContent = "매칭 성공! 목록으로 이동합니다...";
+                }
+            },
+            onMatchFound: (match, matches) => {
+                localStorage.setItem("emblem.matches", JSON.stringify(matches));
                 showNotification(
                     "✨ 매칭 성공! 교환 파트너 발견!",
-                    `${matches[0].nickname}님과 조건이 맞았습니다.`,
+                    `${match.nickname}님과 조건이 맞습니다.`,
                     openExchangePage,
                 );
                 openExchangePage();
@@ -386,19 +443,16 @@ function listenIncomingRequests() {
     state.unsubscribeRequests = watchIncomingTradeRequests(state.uid, (chatData) => {
         const partnerId = getPartnerIdFromChat(chatData, state.uid);
         const partnerName = partnerId
-            ? chatData.participantNicknames?.[partnerId] ?? "상대방"
-            : "상대방";
+            ? chatData.participantNicknames?.[partnerId] ?? DEFAULT_PARTNER_NAME
+            : DEFAULT_PARTNER_NAME;
 
         showNotification(
-            "교환 요청이 도착했습니다",
-            `${partnerName}님이 교환 요청을 보냈습니다.`,
-            () => {
-                const nextUrl = `chat.html?chatId=${encodeURIComponent(chatData.chatId)}${
-                    partnerId ? `&partnerId=${encodeURIComponent(partnerId)}` : ""
-                }`;
-                window.location.href = nextUrl;
-            },
+            CHAT_OPENED_MESSAGE,
+            `${partnerName}님이 채팅을 열었습니다.`,
+            null,
         );
+
+        openChatPage(chatData.chatId, partnerId);
     });
 }
 

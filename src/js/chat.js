@@ -4,19 +4,28 @@ import {
     addDoc,
     collection,
     doc,
+    getDoc,
+    getDocs,
     onSnapshot,
     orderBy,
     query,
+    runTransaction,
     serverTimestamp,
     setDoc,
     updateDoc,
+    where,
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 import { ensureNotificationPermission } from "./permission.js";
 import { initAnonymousAuth, setUserStatus } from "./auth.js";
 import { buildChatId } from "./match.js";
 import { getInitErrorHint } from "./error-hints.js";
 
+const CHAT_OPENED_MESSAGE = "채팅방이 열렸습니다.";
+const CHAT_CANCELED_MESSAGE = "채팅이 닫혀 교환이 취소되었습니다.";
 const TRADE_COMPLETED_MESSAGE = "거래가 종료되었습니다. 나가셔도 좋습니다.";
+const COMPLETE_BUTTON_TEXT = "교환 완료 ✅";
+const MATCH_TTL_MS = 24 * 60 * 60 * 1000;
+const ACTIVE_USER_THRESHOLD_MS = 3 * 60 * 1000;
 
 const elements = {
     messageList: document.getElementById("message-list"),
@@ -30,8 +39,6 @@ const elements = {
     modalNo: document.getElementById("modal-no"),
     modalYes: document.getElementById("modal-yes"),
     completeBtn: document.getElementById("chat-complete-btn"),
-    successModal: document.getElementById("success-modal"),
-    successOk: document.getElementById("success-ok"),
 };
 
 const state = {
@@ -40,10 +47,122 @@ const state = {
     partnerId: null,
     chatId: null,
     chatRef: null,
+    currentChatData: null,
     unsubscribeChat: null,
     unsubscribeMessages: null,
-    completionModalShown: false,
+    isRouting: false,
+    isCancelling: false,
+    isTradeHandled: false,
+    closeSignalSent: false,
 };
+
+function unique(items) {
+    return [...new Set(Array.isArray(items) ? items : [])];
+}
+
+function toMillis(timestampLike) {
+    if (!timestampLike) {
+        return 0;
+    }
+    if (typeof timestampLike.toMillis === "function") {
+        return timestampLike.toMillis();
+    }
+    if (timestampLike.seconds !== undefined) {
+        return timestampLike.seconds * 1000;
+    }
+    if (timestampLike instanceof Date) {
+        return timestampLike.getTime();
+    }
+    const parsed = Date.parse(timestampLike);
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function isExpired(matchingStartedAt) {
+    const startedAtMs = toMillis(matchingStartedAt);
+    if (!startedAtMs) {
+        return true;
+    }
+    return Date.now() - startedAtMs > MATCH_TTL_MS;
+}
+
+function isRecentlyActive(lastActive) {
+    const activeMs = toMillis(lastActive);
+    if (!activeMs) {
+        return false;
+    }
+    return Date.now() - activeMs <= ACTIVE_USER_THRESHOLD_MS;
+}
+
+function derivePresence(data) {
+    if (data?.presence === "online" || data?.presence === "offline") {
+        return data.presence;
+    }
+    return data?.status === "offline" ? "offline" : "online";
+}
+
+function deriveActivity(data) {
+    if (
+        data?.activity === "idle" ||
+        data?.activity === "matching" ||
+        data?.activity === "trading"
+    ) {
+        return data.activity;
+    }
+    if (data?.status === "matching" || data?.status === "trading") {
+        return data.status;
+    }
+    return "idle";
+}
+
+async function hasAvailableMatchesForCurrentUser() {
+    const mySnapshot = await getDoc(doc(db, "users", state.uid));
+    if (!mySnapshot.exists()) {
+        return false;
+    }
+
+    const myData = mySnapshot.data();
+    const myGiveItems = unique(myData.giveItems);
+    const myGetItems = unique(myData.getItems);
+    if (myGiveItems.length === 0 || myGetItems.length === 0) {
+        return false;
+    }
+
+    const myGiveSet = new Set(myGiveItems);
+    const myGetSet = new Set(myGetItems);
+    const matchingUsersSnapshot = await getDocs(
+        query(collection(db, "users"), where("activity", "==", "matching")),
+    );
+
+    for (const userDoc of matchingUsersSnapshot.docs) {
+        if (userDoc.id === state.uid) {
+            continue;
+        }
+
+        const candidate = userDoc.data();
+        if (derivePresence(candidate) !== "online") {
+            continue;
+        }
+        if (deriveActivity(candidate) !== "matching") {
+            continue;
+        }
+        if (isExpired(candidate.matchingStartedAt)) {
+            continue;
+        }
+        if (!isRecentlyActive(candidate.lastActive)) {
+            continue;
+        }
+
+        const theirGiveItems = unique(candidate.giveItems);
+        const theirGetItems = unique(candidate.getItems);
+        const hasGetMatch = theirGiveItems.some((itemId) => myGetSet.has(itemId));
+        const hasGiveMatch = theirGetItems.some((itemId) => myGiveSet.has(itemId));
+        if (hasGetMatch && hasGiveMatch) {
+            return true;
+        }
+    }
+
+    return false;
+}
 
 function getItemInfo(id) {
     const found = items.find((item) => item.id === id);
@@ -56,6 +175,49 @@ function getItemInfo(id) {
             ? `${found.categoryLabel} ${found.number}`
             : `${found.category ?? ""} ${found.number ?? ""}`.trim(),
     };
+}
+
+function stopRealtimeListeners() {
+    if (state.unsubscribeChat) {
+        state.unsubscribeChat();
+        state.unsubscribeChat = null;
+    }
+    if (state.unsubscribeMessages) {
+        state.unsubscribeMessages();
+        state.unsubscribeMessages = null;
+    }
+}
+
+function setChatInputEnabled(enabled) {
+    if (elements.chatInput) {
+        elements.chatInput.disabled = !enabled;
+    }
+    if (elements.sendBtn) {
+        elements.sendBtn.disabled = !enabled;
+        elements.sendBtn.style.opacity = enabled ? "1" : "0.5";
+    }
+}
+
+function updateCompleteButtonState(chatData) {
+    if (!elements.completeBtn) {
+        return;
+    }
+
+    const participants = Array.isArray(chatData?.participants)
+        ? chatData.participants.filter((id) => typeof id === "string" && id.length > 0)
+        : [];
+    const completedBy = chatData?.completedBy ?? {};
+    const myCompleted = Boolean(completedBy[state.uid]);
+    const allCompleted =
+        participants.length >= 2 && participants.every((id) => Boolean(completedBy[id]));
+    const disabled = Boolean(chatData?.isCanceled || chatData?.isCompleted || myCompleted);
+
+    elements.completeBtn.textContent = COMPLETE_BUTTON_TEXT;
+    elements.completeBtn.disabled = disabled;
+    elements.completeBtn.classList.toggle(
+        "is-confirmed",
+        myCompleted || allCompleted || Boolean(chatData?.isCompleted),
+    );
 }
 
 function renderItemStack(itemIds, container) {
@@ -85,20 +247,6 @@ function renderItemStack(itemIds, container) {
         wrapper.appendChild(label);
         container.appendChild(wrapper);
     }
-}
-
-function showSuccessModal() {
-    if (!elements.successModal || state.completionModalShown) {
-        return;
-    }
-
-    const modalTitle = elements.successModal.querySelector(".modal-title");
-    if (modalTitle) {
-        modalTitle.textContent = TRADE_COMPLETED_MESSAGE;
-    }
-
-    state.completionModalShown = true;
-    elements.successModal.classList.add("active");
 }
 
 function hideExitModal() {
@@ -155,22 +303,96 @@ function renderMessages(messages) {
     elements.messageList.scrollTop = elements.messageList.scrollHeight;
 }
 
-function setChatInputEnabled(enabled) {
-    if (elements.chatInput) {
-        elements.chatInput.disabled = !enabled;
+function getInitiatorId(chatData) {
+    if (typeof chatData?.initiatorId === "string" && chatData.initiatorId.length > 0) {
+        return chatData.initiatorId;
     }
-    if (elements.sendBtn) {
-        elements.sendBtn.disabled = !enabled;
-        elements.sendBtn.style.opacity = enabled ? "1" : "0.5";
+    if (
+        typeof chatData?.lastSenderId === "string" &&
+        typeof chatData?.lastMessage === "string" &&
+        chatData.lastMessage.includes(CHAT_OPENED_MESSAGE)
+    ) {
+        return chatData.lastSenderId;
     }
-    if (elements.completeBtn) {
-        elements.completeBtn.disabled = !enabled;
-        elements.completeBtn.style.opacity = enabled ? "1" : "0.6";
+    return null;
+}
+
+function buildChatUrl(chatId, partnerId) {
+    return `chat.html?chatId=${encodeURIComponent(chatId)}${
+        partnerId ? `&partnerId=${encodeURIComponent(partnerId)}` : ""
+    }`;
+}
+
+async function navigateWithStatus(status, targetUrl) {
+    if (state.isRouting) {
+        return;
+    }
+    state.isRouting = true;
+    stopRealtimeListeners();
+
+    try {
+        await setUserStatus(state.uid, status);
+    } catch (error) {
+        console.error("failed to update status before navigation:", error);
+    } finally {
+        window.location.href = targetUrl;
     }
 }
 
+async function routeAfterCancellation(chatData, showAlert) {
+    const initiatorId = getInitiatorId(chatData);
+    const iAmInitiator = initiatorId === state.uid;
+    let targetUrl = "index.html";
+    let targetStatus = "online";
+
+    if (!iAmInitiator) {
+        let hasMatchCandidate = true;
+        try {
+            hasMatchCandidate = await hasAvailableMatchesForCurrentUser();
+        } catch (error) {
+            console.error("failed to check remaining match candidates:", error);
+        }
+
+        if (hasMatchCandidate) {
+            targetUrl = "exchange.html";
+            targetStatus = "matching";
+        }
+    }
+
+    if (showAlert) {
+        if (iAmInitiator || targetUrl === "index.html") {
+            alert("채팅이 닫혀 교환이 취소되었습니다. 메인으로 이동합니다.");
+        } else {
+            alert("채팅이 닫혀 교환이 취소되었습니다. 매칭 상태로 돌아갑니다.");
+        }
+    }
+
+    await navigateWithStatus(targetStatus, targetUrl);
+}
+
+async function handleCanceledTrade(chatData, showAlert = true) {
+    if (state.isTradeHandled) {
+        return;
+    }
+    state.isTradeHandled = true;
+    setChatInputEnabled(false);
+    updateCompleteButtonState(chatData);
+    await routeAfterCancellation(chatData, showAlert);
+}
+
+async function handleCompletedTrade(chatData) {
+    if (state.isTradeHandled) {
+        return;
+    }
+    state.isTradeHandled = true;
+    setChatInputEnabled(false);
+    updateCompleteButtonState(chatData);
+    alert(TRADE_COMPLETED_MESSAGE);
+    await navigateWithStatus("online", "index.html");
+}
+
 async function sendMessage() {
-    if (!state.chatRef || !elements.chatInput) {
+    if (!state.chatRef || !elements.chatInput || state.isTradeHandled) {
         return;
     }
 
@@ -196,43 +418,195 @@ async function sendMessage() {
     elements.chatInput.focus();
 }
 
-async function completeTrade() {
-    if (!state.chatRef) {
+async function maybeFinalizeTrade(chatData) {
+    if (!state.chatRef || chatData?.isCompleted || chatData?.isCanceled) {
         return;
     }
 
+    const participants = Array.isArray(chatData?.participants)
+        ? chatData.participants.filter((id) => typeof id === "string" && id.length > 0)
+        : [];
+    if (participants.length < 2) {
+        return;
+    }
+
+    const completedBy = chatData?.completedBy ?? {};
+    const allCompleted = participants.every((id) => Boolean(completedBy[id]));
+    if (!allCompleted) {
+        return;
+    }
+
+    const finalized = await runTransaction(db, async (tx) => {
+        const snap = await tx.get(state.chatRef);
+        if (!snap.exists()) {
+            return false;
+        }
+
+        const latest = snap.data();
+        if (latest.isCompleted || latest.isCanceled) {
+            return false;
+        }
+
+        const latestParticipants = Array.isArray(latest.participants)
+            ? latest.participants.filter((id) => typeof id === "string" && id.length > 0)
+            : [];
+        const latestCompletedBy = latest.completedBy ?? {};
+        const latestAllCompleted =
+            latestParticipants.length >= 2 &&
+            latestParticipants.every((id) => Boolean(latestCompletedBy[id]));
+        if (!latestAllCompleted) {
+            return false;
+        }
+
+        tx.update(state.chatRef, {
+            isCompleted: true,
+            chatOpened: false,
+            lastMessage: TRADE_COMPLETED_MESSAGE,
+            lastSenderId: state.uid,
+            updatedAt: serverTimestamp(),
+            completedAt: serverTimestamp(),
+        });
+        return true;
+    });
+
+    if (finalized) {
+        await addDoc(collection(state.chatRef, "messages"), {
+            senderId: state.uid,
+            text: TRADE_COMPLETED_MESSAGE,
+            type: "system",
+            createdAt: serverTimestamp(),
+        });
+    }
+}
+
+async function completeTrade() {
+    if (!state.chatRef || state.isTradeHandled) {
+        return;
+    }
+
+    const chatData = state.currentChatData;
+    if (chatData?.isCompleted || chatData?.isCanceled) {
+        return;
+    }
+    if (chatData?.completedBy?.[state.uid]) {
+        return;
+    }
+
+    const waitingMessage = `${state.nickname}님이 교환 완료를 눌렀습니다.`;
     await updateDoc(state.chatRef, {
-        isCompleted: true,
-        lastMessage: TRADE_COMPLETED_MESSAGE,
+        [`completedBy.${state.uid}`]: true,
+        lastMessage: waitingMessage,
         lastSenderId: state.uid,
         updatedAt: serverTimestamp(),
     });
 
     await addDoc(collection(state.chatRef, "messages"), {
         senderId: state.uid,
-        text: TRADE_COMPLETED_MESSAGE,
+        text: waitingMessage,
         type: "system",
         createdAt: serverTimestamp(),
     });
 }
 
-async function ensureChatExists() {
-    if (!state.chatRef) {
+async function cancelTradeByUser() {
+    if (!state.chatRef || state.isTradeHandled || state.isCancelling) {
         return;
     }
 
-    await setDoc(
-        state.chatRef,
-        {
-            participants: [state.uid, state.partnerId].filter(Boolean),
-            participantNicknames: {
-                [state.uid]: state.nickname,
-            },
-            isCompleted: false,
+    state.isCancelling = true;
+    hideExitModal();
+
+    try {
+        let chatData = state.currentChatData;
+        if (!chatData) {
+            const snapshot = await getDoc(state.chatRef);
+            chatData = snapshot.exists() ? snapshot.data() : null;
+        }
+        if (!chatData) {
+            await navigateWithStatus("online", "index.html");
+            return;
+        }
+
+        if (chatData.isCompleted) {
+            await handleCompletedTrade(chatData);
+            return;
+        }
+        if (chatData.isCanceled) {
+            await handleCanceledTrade(chatData, false);
+            return;
+        }
+
+        state.closeSignalSent = true;
+        await updateDoc(state.chatRef, {
+            isCanceled: true,
+            chatOpened: false,
+            canceledBy: state.uid,
+            canceledAt: serverTimestamp(),
+            lastMessage: CHAT_CANCELED_MESSAGE,
+            lastSenderId: state.uid,
             updatedAt: serverTimestamp(),
-        },
-        { merge: true },
-    );
+        });
+
+        await addDoc(collection(state.chatRef, "messages"), {
+            senderId: state.uid,
+            text: CHAT_CANCELED_MESSAGE,
+            type: "system",
+            createdAt: serverTimestamp(),
+        });
+
+        await handleCanceledTrade(
+            {
+                ...chatData,
+                isCanceled: true,
+                canceledBy: state.uid,
+            },
+            false,
+        );
+    } catch (error) {
+        console.error("failed to cancel trade:", error);
+        alert("채팅 종료 처리 중 오류가 발생했습니다.");
+    } finally {
+        state.isCancelling = false;
+    }
+}
+
+function sendCloseSignalOnPageClose() {
+    if (
+        !state.chatRef ||
+        !state.currentChatData ||
+        state.isRouting ||
+        state.isTradeHandled ||
+        state.isCancelling ||
+        state.closeSignalSent
+    ) {
+        return;
+    }
+    if (state.currentChatData.isCompleted || state.currentChatData.isCanceled) {
+        return;
+    }
+
+    state.closeSignalSent = true;
+    updateDoc(state.chatRef, {
+        isCanceled: true,
+        chatOpened: false,
+        canceledBy: state.uid,
+        canceledAt: serverTimestamp(),
+        lastMessage: CHAT_CANCELED_MESSAGE,
+        lastSenderId: state.uid,
+        updatedAt: serverTimestamp(),
+    }).catch(() => {});
+
+    addDoc(collection(state.chatRef, "messages"), {
+        senderId: state.uid,
+        text: CHAT_CANCELED_MESSAGE,
+        type: "system",
+        createdAt: serverTimestamp(),
+    }).catch(() => {});
+}
+
+function bindLifecycleCloseHandlers() {
+    window.addEventListener("pagehide", sendCloseSignalOnPageClose);
+    window.addEventListener("beforeunload", sendCloseSignalOnPageClose);
 }
 
 function bindEvents() {
@@ -261,9 +635,8 @@ function bindEvents() {
     }
 
     if (elements.modalYes) {
-        elements.modalYes.addEventListener("click", async () => {
-            await setUserStatus(state.uid, "matching");
-            window.location.href = "exchange.html";
+        elements.modalYes.addEventListener("click", () => {
+            cancelTradeByUser().catch(console.error);
         });
     }
 
@@ -273,13 +646,6 @@ function bindEvents() {
                 console.error(error);
                 alert("거래 완료 처리 중 오류가 발생했습니다.");
             });
-        });
-    }
-
-    if (elements.successOk) {
-        elements.successOk.addEventListener("click", async () => {
-            await setUserStatus(state.uid, "online");
-            window.location.href = "index.html";
         });
     }
 }
@@ -299,6 +665,8 @@ function subscribeChat() {
         }
 
         const chatData = snapshot.data();
+        state.currentChatData = chatData;
+
         if (!state.partnerId) {
             state.partnerId =
                 (chatData.participants ?? []).find((uid) => uid !== state.uid) ?? null;
@@ -318,9 +686,19 @@ function subscribeChat() {
         renderItemStack(mySelection.giveItems, elements.giveContainer);
         renderItemStack(mySelection.getItems, elements.getContainer);
 
+        const ended = Boolean(chatData.isCompleted || chatData.isCanceled);
+        setChatInputEnabled(!ended);
+        updateCompleteButtonState(chatData);
+
+        if (chatData.isCanceled) {
+            handleCanceledTrade(chatData).catch(console.error);
+            return;
+        }
+
+        maybeFinalizeTrade(chatData).catch(console.error);
+
         if (chatData.isCompleted) {
-            setChatInputEnabled(false);
-            showSuccessModal();
+            handleCompletedTrade(chatData).catch(console.error);
         }
     });
 }
@@ -374,6 +752,23 @@ function resolveChatContext() {
     state.partnerId = partnerId;
 }
 
+async function ensureChatExists() {
+    if (!state.chatRef) {
+        return;
+    }
+
+    const payload = {
+        participantNicknames: {
+            [state.uid]: state.nickname,
+        },
+    };
+    if (state.partnerId) {
+        payload.participants = [state.uid, state.partnerId];
+    }
+
+    await setDoc(state.chatRef, payload, { merge: true });
+}
+
 async function init() {
     try {
         await ensureNotificationPermission();
@@ -392,7 +787,10 @@ async function init() {
         state.chatRef = doc(db, "chats", state.chatId);
 
         bindEvents();
+        bindLifecycleCloseHandlers();
         await ensureChatExists();
+        setChatInputEnabled(true);
+        updateCompleteButtonState(null);
         subscribeChat();
         subscribeMessages();
     } catch (error) {

@@ -19,12 +19,17 @@ import {
 } from "./db.js";
 import {
     buildChatId,
+    cancelMatching,
     getPartnerIdFromChat,
     watchIncomingTradeRequests,
     watchPotentialMatches,
 } from "./match.js";
 
+const CHAT_OPENED_MESSAGE = "채팅방이 열렸습니다.";
+const DEFAULT_PARTNER_NAME = "상대방";
+
 const elements = {
+    backButton: document.getElementById("exchange-back-btn"),
     exchangeList: document.getElementById("exchange-list"),
 };
 
@@ -35,12 +40,15 @@ const state = {
     matches: [],
     unsubscribeMatches: null,
     unsubscribeRequests: null,
+    isLeaving: false,
+    isRedirectingToChat: false,
 };
 
 function showNotification(title, body, onClick) {
     if (!("Notification" in window) || Notification.permission !== "granted") {
         return;
     }
+
     const notification = new Notification(title, { body });
     notification.onclick = () => {
         window.focus();
@@ -55,6 +63,7 @@ function getItemInfo(id) {
     if (!found) {
         return { src: "", number: "?", label: id };
     }
+
     const label = found.categoryLabel
         ? `${found.categoryLabel} ${found.number}`
         : `${found.category ?? ""} ${found.number ?? ""}`.trim();
@@ -69,6 +78,7 @@ function renderEmpty(message) {
     if (!elements.exchangeList) {
         return;
     }
+
     elements.exchangeList.innerHTML = `
         <div class="empty-match">
             <span>🔍</span>
@@ -91,6 +101,7 @@ function renderMatches() {
     if (!elements.exchangeList) {
         return;
     }
+
     if (!state.matches.length) {
         renderEmpty("현재 조건에 맞는 파트너가 없습니다. 잠시 후 다시 확인해주세요.");
         return;
@@ -158,17 +169,23 @@ async function requestTrade(match) {
             participants,
             participantNicknames,
             selectionByUser,
-            lastMessage: "교환 요청이 도착했습니다",
+            initiatorId: state.uid,
+            chatOpened: true,
+            lastMessage: CHAT_OPENED_MESSAGE,
             lastSenderId: state.uid,
             updatedAt: serverTimestamp(),
             isCompleted: false,
+            completedBy: {},
+            isCanceled: false,
+            canceledBy: null,
+            canceledAt: null,
         },
         { merge: true },
     );
 
     await addDoc(collection(chatRef, "messages"), {
         senderId: state.uid,
-        text: "교환 요청이 도착했습니다",
+        text: CHAT_OPENED_MESSAGE,
         type: "system",
         createdAt: serverTimestamp(),
     });
@@ -187,16 +204,86 @@ function bindRequestButtons() {
         if (!button) {
             return;
         }
+
         const targetUid = button.getAttribute("data-request-uid");
         const targetMatch = state.matches.find((match) => match.uid === targetUid);
         if (!targetMatch) {
             return;
         }
+
         requestTrade(targetMatch).catch((error) => {
             console.error(error);
-            alert("교환 요청 중 오류가 발생했습니다.");
+            alert("채팅 열기 중 오류가 발생했습니다.");
         });
     });
+}
+
+function stopRealtimeListeners() {
+    if (state.unsubscribeMatches) {
+        state.unsubscribeMatches();
+        state.unsubscribeMatches = null;
+    }
+    if (state.unsubscribeRequests) {
+        state.unsubscribeRequests();
+        state.unsubscribeRequests = null;
+    }
+}
+
+async function handleBackButtonClick() {
+    if (state.isLeaving) {
+        return;
+    }
+
+    state.isLeaving = true;
+    if (elements.backButton) {
+        elements.backButton.disabled = true;
+    }
+
+    stopRealtimeListeners();
+
+    try {
+        if (state.uid) {
+            await cancelMatching(state.uid);
+        }
+    } catch (error) {
+        console.error("failed to cancel matching before leaving:", error);
+    } finally {
+        window.location.href = "index.html";
+    }
+}
+
+function bindBackButton() {
+    if (!elements.backButton) {
+        return;
+    }
+
+    elements.backButton.addEventListener("click", () => {
+        handleBackButtonClick();
+    });
+}
+
+function openIncomingChat(chatData) {
+    if (state.isLeaving || state.isRedirectingToChat) {
+        return;
+    }
+
+    const partnerId = getPartnerIdFromChat(chatData, state.uid);
+    const partnerName = partnerId
+        ? chatData.participantNicknames?.[partnerId] ?? DEFAULT_PARTNER_NAME
+        : DEFAULT_PARTNER_NAME;
+    const nextUrl = `chat.html?chatId=${encodeURIComponent(chatData.chatId)}${
+        partnerId ? `&partnerId=${encodeURIComponent(partnerId)}` : ""
+    }`;
+
+    showNotification(
+        CHAT_OPENED_MESSAGE,
+        `${partnerName}님이 채팅을 열었습니다.`,
+        null,
+    );
+
+    state.isRedirectingToChat = true;
+    stopRealtimeListeners();
+    window.location.href = nextUrl;
 }
 
 function listenIncomingRequests() {
@@ -205,21 +292,7 @@ function listenIncomingRequests() {
     }
 
     state.unsubscribeRequests = watchIncomingTradeRequests(state.uid, (chatData) => {
-        const partnerId = getPartnerIdFromChat(chatData, state.uid);
-        const partnerName = partnerId
-            ? chatData.participantNicknames?.[partnerId] ?? "상대방"
-            : "상대방";
-
-        showNotification(
-            "교환 요청이 도착했습니다",
-            `${partnerName}님이 채팅을 열었습니다.`,
-            () => {
-                const nextUrl = `chat.html?chatId=${encodeURIComponent(chatData.chatId)}${
-                    partnerId ? `&partnerId=${encodeURIComponent(partnerId)}` : ""
-                }`;
-                window.location.href = nextUrl;
-            },
-        );
+        openIncomingChat(chatData);
     });
 }
 
@@ -245,6 +318,7 @@ async function resolveSelection() {
     if (!hasValidSelection(selection)) {
         selection = await getSelection(state.uid);
     }
+
     state.selection = selection;
     saveSelectionToStorage(selection);
     await saveSelection(state.uid, selection);
@@ -259,7 +333,7 @@ async function init() {
 
         await resolveSelection();
         if (!hasValidSelection(state.selection)) {
-            renderEmpty("먼저 홈에서 아이템을 선택하고 매칭을 시작해주세요.");
+            renderEmpty("메인 화면에서 아이템을 선택하고 매칭을 시작해주세요.");
             return;
         }
 
@@ -273,4 +347,5 @@ async function init() {
     }
 }
 
+bindBackButton();
 init();

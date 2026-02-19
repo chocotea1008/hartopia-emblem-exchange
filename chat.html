@@ -70,20 +70,29 @@
 
         .complete-btn-chat {
             margin-left: auto;
-            background: linear-gradient(135deg, #ffd60a 0%, #ffc300 100%);
-            color: var(--text-dark);
+            background: #d1d5db;
+            color: #374151;
             border: 2px solid #fff;
             padding: 8px 18px;
             border-radius: 15px;
             font-size: 1rem;
             font-weight: 900;
             cursor: pointer;
-            box-shadow: 0 4px 15px rgba(255, 195, 0, 0.3), inset 0 -2px 0 rgba(0,0,0,0.1);
-            transition: 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-            text-shadow: 0 1px 0 rgba(255,255,255,0.5);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.12);
+            transition: 0.2s ease;
         }
-        .complete-btn-chat:hover { transform: scale(1.05); box-shadow: 0 6px 20px rgba(255, 195, 0, 0.4); }
-        .complete-btn-chat:active { transform: translateY(2px) scale(0.98); box-shadow: 0 2px 5px rgba(255, 195, 0, 0.4); }
+        .complete-btn-chat:hover { transform: translateY(-1px); }
+        .complete-btn-chat:active { transform: translateY(1px); }
+        .complete-btn-chat.is-confirmed {
+            background: linear-gradient(135deg, #ffd60a 0%, #ffc300 100%);
+            color: var(--text-dark);
+            box-shadow: 0 4px 15px rgba(255, 195, 0, 0.3), inset 0 -2px 0 rgba(0,0,0,0.1);
+        }
+        .complete-btn-chat:disabled {
+            cursor: not-allowed;
+            opacity: 0.8;
+            transform: none;
+        }
 
         /* Trade Dashboard Bar */
         .trade-summary {
@@ -281,7 +290,7 @@
                 <span class="partner-name" id="partner-name-display">파칭코왕</span>
                 <span class="partner-status">● 온라인</span>
             </div>
-            <button class="complete-btn-chat" id="chat-complete-btn">교환 완료</button>
+            <button class="complete-btn-chat" id="chat-complete-btn">교환 완료 ✅</button>
         </header>
 
         <div class="trade-summary" id="trade-dashboard">
