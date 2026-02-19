@@ -10,6 +10,7 @@ import {
 import { ensureNotificationPermission } from "./permission.js";
 import { initAnonymousAuth, setUserStatus } from "./auth.js";
 import { getInitErrorHint } from "./error-hints.js";
+import { showSystemNotification } from "./notify.js";
 import {
     getSelection,
     hasValidSelection,
@@ -28,6 +29,7 @@ import {
 
 const CHAT_OPENED_MESSAGE = "채팅방이 열렸습니다.";
 const DEFAULT_PARTNER_NAME = "상대방";
+const CHAT_RECOVERY_POLL_MS = 1500;
 
 const elements = {
     backButton: document.getElementById("exchange-back-btn"),
@@ -44,20 +46,11 @@ const state = {
     isLeaving: false,
     isRedirectingToChat: false,
     chatRecoveryTimer: null,
+    visibilityHandler: null,
 };
 
-function showNotification(title, body, onClick) {
-    if (!("Notification" in window) || Notification.permission !== "granted") {
-        return;
-    }
-
-    const notification = new Notification(title, { body });
-    notification.onclick = () => {
-        window.focus();
-        if (typeof onClick === "function") {
-            onClick();
-        }
-    };
+function showNotification(title, body) {
+    showSystemNotification(title, { body }).catch(console.error);
 }
 
 function getItemInfo(id) {
@@ -230,6 +223,10 @@ function stopRealtimeListeners() {
         state.unsubscribeRequests = null;
     }
     stopChatRecoveryPoll();
+    if (state.visibilityHandler) {
+        document.removeEventListener("visibilitychange", state.visibilityHandler);
+        state.visibilityHandler = null;
+    }
 }
 
 async function handleBackButtonClick() {
@@ -323,7 +320,20 @@ function startChatRecoveryPoll() {
     maybeOpenExistingChat().catch(console.error);
     state.chatRecoveryTimer = setInterval(() => {
         maybeOpenExistingChat().catch(console.error);
-    }, 5000);
+    }, CHAT_RECOVERY_POLL_MS);
+}
+
+function bindVisibilityRecovery() {
+    if (state.visibilityHandler) {
+        return;
+    }
+
+    state.visibilityHandler = () => {
+        if (!document.hidden) {
+            maybeOpenExistingChat().catch(console.error);
+        }
+    };
+    document.addEventListener("visibilitychange", state.visibilityHandler);
 }
 
 function listenIncomingRequests() {
@@ -383,9 +393,14 @@ async function init() {
         }
 
         await setUserStatus(state.uid, "matching");
+        const redirectedAfterMatching = await maybeOpenExistingChat();
+        if (redirectedAfterMatching) {
+            return;
+        }
         bindRequestButtons();
         listenMatches();
         listenIncomingRequests();
+        bindVisibilityRecovery();
         startChatRecoveryPoll();
     } catch (error) {
         console.error("exchange init failed:", error);

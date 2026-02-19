@@ -127,6 +127,7 @@ export async function ensureNotificationPermission() {
 
     if (Notification.permission === "granted") {
         hideOverlay();
+        await ensureNotificationWorker();
         return true;
     }
 
@@ -146,6 +147,7 @@ export async function ensureNotificationPermission() {
         try {
             const permission = await requestNotificationPermission();
             if (permission === "granted") {
+                await ensureNotificationWorker();
                 hideOverlay();
                 if (resolvePermission) {
                     resolvePermission(true);
@@ -173,3 +175,4 @@ export async function ensureNotificationPermission() {
 
     return pendingPermissionPromise;
 }
+import { ensureNotificationWorker } from "./notify.js";

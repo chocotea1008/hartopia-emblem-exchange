@@ -195,7 +195,9 @@ function setPartnerStatusText(isOnline) {
     if (!elements.partnerStatus) {
         return;
     }
-    elements.partnerStatus.textContent = isOnline ? "● 온라인" : "● 오프라인";
+    elements.partnerStatus.textContent = isOnline ? "온라인" : "오프라인";
+    elements.partnerStatus.classList.toggle("is-online", isOnline);
+    elements.partnerStatus.classList.toggle("is-offline", !isOnline);
 }
 
 function showPresenceNotice(text) {
@@ -357,19 +359,13 @@ function addMessageBubble(message) {
     const isSystem = message.type === "system";
     const isMe = message.senderId === state.uid && !isSystem;
 
-    const bubble = document.createElement("div");
-    bubble.className = `msg-bubble ${
-        isSystem ? "msg-partner" : isMe ? "msg-me" : "msg-partner"
+    const row = document.createElement("div");
+    row.className = `msg-row ${
+        isSystem ? "msg-row-system" : isMe ? "msg-row-me" : "msg-row-partner"
     }`;
 
-    if (isSystem) {
-        bubble.style.alignSelf = "center";
-        bubble.style.background = "rgba(255,255,255,0.85)";
-        bubble.style.border = "2px dashed #d1d5db";
-        bubble.style.color = "#374151";
-        bubble.style.maxWidth = "92%";
-        bubble.style.textAlign = "center";
-    }
+    const bubble = document.createElement("div");
+    bubble.className = `msg-bubble ${isSystem ? "msg-system" : isMe ? "msg-me" : "msg-partner"}`;
 
     const createdAt = message.createdAt?.toDate
         ? message.createdAt.toDate()
@@ -379,11 +375,24 @@ function addMessageBubble(message) {
         minute: "2-digit",
     });
 
-    bubble.innerHTML = `
-        <div class="msg-text">${message.text ?? ""}</div>
-        <span class="msg-time">${time}</span>
-    `;
-    elements.messageList.appendChild(bubble);
+    const textNode = document.createElement("div");
+    textNode.className = "msg-text";
+    textNode.textContent = message.text ?? "";
+    bubble.appendChild(textNode);
+
+    const timeNode = document.createElement("span");
+    timeNode.className = "msg-time";
+    timeNode.textContent = time;
+
+    if (isMe) {
+        row.appendChild(timeNode);
+        row.appendChild(bubble);
+    } else {
+        row.appendChild(bubble);
+        row.appendChild(timeNode);
+    }
+
+    elements.messageList.appendChild(row);
 }
 
 function renderMessages(messages) {

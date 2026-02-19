@@ -2,6 +2,7 @@ import { items as sourceItems } from "../../js/data.js";
 import { ensureNotificationPermission } from "./permission.js";
 import { initAnonymousAuth } from "./auth.js";
 import { getInitErrorHint } from "./error-hints.js";
+import { showSystemNotification } from "./notify.js";
 import {
     applySelectionToItems,
     hasValidSelection,
@@ -61,18 +62,8 @@ function isMatchingActive() {
     return sessionStorage.getItem(MATCHING_ACTIVE_STORAGE_KEY) === "1";
 }
 
-function showNotification(title, body, onClick) {
-    if (!("Notification" in window) || Notification.permission !== "granted") {
-        return;
-    }
-
-    const notification = new Notification(title, { body });
-    notification.onclick = () => {
-        window.focus();
-        if (typeof onClick === "function") {
-            onClick();
-        }
-    };
+function showNotification(title, body) {
+    showSystemNotification(title, { body }).catch(console.error);
 }
 
 function updateActionAreaUI() {
