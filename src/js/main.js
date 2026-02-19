@@ -1,25 +1,8 @@
 import { items as sourceItems } from "../../js/data.js";
-import { ensureNotificationPermission } from "./permission.js";
-import { initAnonymousAuth } from "./auth.js";
 import { getInitErrorHint } from "./error-hints.js";
-import { showSystemNotification } from "./notify.js";
-import {
-    applySelectionToItems,
-    hasValidSelection,
-    loadSelectionFromStorage,
-    saveSelection,
-    saveSelectionToStorage,
-    selectionFromItems,
-    watchSelection,
-} from "./db.js";
-import {
-    findLatestOpenChatForUser,
-    getPartnerIdFromChat,
-    startMatchingSession,
-    watchIncomingTradeRequests,
-} from "./match.js";
 
 const MATCHING_ACTIVE_STORAGE_KEY = "emblem.matching.active";
+const SELECTION_STORAGE_KEY = "emblem.selection";
 const CHAT_OPENED_MESSAGE = "채팅방이 열렸습니다.";
 const DEFAULT_PARTNER_NAME = "상대방";
 
@@ -54,6 +37,117 @@ const state = {
     chatRecoveryTimer: null,
 };
 
+const runtime = {
+    loadPromise: null,
+    ready: false,
+    ensureNotificationPermission: null,
+    initAnonymousAuth: null,
+    saveSelection: null,
+    watchSelection: null,
+    findLatestOpenChatForUser: null,
+    getPartnerIdFromChat: null,
+    startMatchingSession: null,
+    watchIncomingTradeRequests: null,
+    showSystemNotification: null,
+};
+
+function uniqueArray(items) {
+    return [...new Set(Array.isArray(items) ? items : [])];
+}
+
+function selectionFromItems(items) {
+    const giveItems = [];
+    const getItems = [];
+
+    for (const item of items) {
+        if (item.status === "sell") {
+            giveItems.push(item.id);
+        } else if (item.status === "buy") {
+            getItems.push(item.id);
+        }
+    }
+
+    return {
+        giveItems: uniqueArray(giveItems),
+        getItems: uniqueArray(getItems),
+    };
+}
+
+function hasValidSelection(selection) {
+    return (
+        Array.isArray(selection?.giveItems) &&
+        selection.giveItems.length > 0 &&
+        Array.isArray(selection?.getItems) &&
+        selection.getItems.length > 0
+    );
+}
+
+function saveSelectionToStorage(selection) {
+    localStorage.setItem(SELECTION_STORAGE_KEY, JSON.stringify(selection));
+}
+
+function loadSelectionFromStorage() {
+    const raw = localStorage.getItem(SELECTION_STORAGE_KEY);
+    if (!raw) {
+        return { giveItems: [], getItems: [] };
+    }
+
+    try {
+        const parsed = JSON.parse(raw);
+        return {
+            giveItems: uniqueArray(parsed?.giveItems),
+            getItems: uniqueArray(parsed?.getItems),
+        };
+    } catch {
+        return { giveItems: [], getItems: [] };
+    }
+}
+
+function applySelectionToItems(items, selection) {
+    const giveSet = new Set(selection?.giveItems ?? []);
+    const getSet = new Set(selection?.getItems ?? []);
+
+    return items.map((item) => {
+        let status = "center";
+        if (giveSet.has(item.id)) {
+            status = "sell";
+        } else if (getSet.has(item.id)) {
+            status = "buy";
+        }
+        return { ...item, status };
+    });
+}
+
+async function ensureRuntimeLoaded() {
+    if (runtime.ready) {
+        return;
+    }
+
+    if (!runtime.loadPromise) {
+        runtime.loadPromise = Promise.all([
+            import("./permission.js"),
+            import("./auth.js"),
+            import("./db.js"),
+            import("./match.js"),
+            import("./notify.js"),
+        ]).then(([permissionModule, authModule, dbModule, matchModule, notifyModule]) => {
+            runtime.ensureNotificationPermission =
+                permissionModule.ensureNotificationPermission;
+            runtime.initAnonymousAuth = authModule.initAnonymousAuth;
+            runtime.saveSelection = dbModule.saveSelection;
+            runtime.watchSelection = dbModule.watchSelection;
+            runtime.findLatestOpenChatForUser = matchModule.findLatestOpenChatForUser;
+            runtime.getPartnerIdFromChat = matchModule.getPartnerIdFromChat;
+            runtime.startMatchingSession = matchModule.startMatchingSession;
+            runtime.watchIncomingTradeRequests = matchModule.watchIncomingTradeRequests;
+            runtime.showSystemNotification = notifyModule.showSystemNotification;
+            runtime.ready = true;
+        });
+    }
+
+    await runtime.loadPromise;
+}
+
 function setMatchingActive(flag) {
     sessionStorage.setItem(MATCHING_ACTIVE_STORAGE_KEY, flag ? "1" : "0");
 }
@@ -63,7 +157,10 @@ function isMatchingActive() {
 }
 
 function showNotification(title, body) {
-    showSystemNotification(title, { body }).catch(console.error);
+    if (!runtime.ready || typeof runtime.showSystemNotification !== "function") {
+        return;
+    }
+    runtime.showSystemNotification(title, { body }).catch(console.error);
 }
 
 function updateActionAreaUI() {
@@ -132,13 +229,13 @@ function checkCompleteStatus() {
     elements.completeBtn.disabled = !hasValidSelection(selection);
 }
 
-async function persistSelection() {
-    if (!state.uid) {
-        return;
-    }
+function persistSelection() {
     const selection = selectionFromItems(state.items);
     saveSelectionToStorage(selection);
-    await saveSelection(state.uid, selection);
+    if (!runtime.ready || !state.uid || typeof runtime.saveSelection !== "function") {
+        return;
+    }
+    runtime.saveSelection(state.uid, selection).catch(console.error);
 }
 
 function handleItemClick(item) {
@@ -150,7 +247,7 @@ function handleItemClick(item) {
 
     item.status = item.status === targetStatus ? "center" : targetStatus;
     render();
-    persistSelection().catch(console.error);
+    persistSelection();
 }
 
 function handleRightClick(item, event) {
@@ -163,7 +260,7 @@ function handleRightClick(item, event) {
 
     item.status = item.status === "sell" ? "center" : "sell";
     render();
-    persistSelection().catch(console.error);
+    persistSelection();
 }
 
 function render() {
@@ -297,11 +394,11 @@ async function maybeOpenExistingChat() {
     }
 
     try {
-        const chatData = await findLatestOpenChatForUser(state.uid);
+        const chatData = await runtime.findLatestOpenChatForUser(state.uid);
         if (!chatData || state.isRedirecting) {
             return false;
         }
-        const partnerId = getPartnerIdFromChat(chatData, state.uid);
+        const partnerId = runtime.getPartnerIdFromChat(chatData, state.uid);
         openChatPage(chatData.chatId, partnerId);
         return true;
     } catch (error) {
@@ -331,7 +428,7 @@ async function startMatchingFlow({ resume = false } = {}) {
         return;
     }
 
-    await saveSelection(state.uid, selection);
+    await runtime.saveSelection(state.uid, selection);
     saveSelectionToStorage(selection);
 
     state.isMatching = true;
@@ -342,7 +439,7 @@ async function startMatchingFlow({ resume = false } = {}) {
     }
 
     try {
-        state.matchingController = await startMatchingSession({
+        state.matchingController = await runtime.startMatchingSession({
             uid: state.uid,
             giveItems: selection.giveItems,
             getItems: selection.getItems,
@@ -434,7 +531,7 @@ function listenSelection() {
         state.unsubscribeSelection();
     }
 
-    state.unsubscribeSelection = watchSelection(state.uid, (selection) => {
+    state.unsubscribeSelection = runtime.watchSelection(state.uid, (selection) => {
         const local = selectionFromItems(state.items);
         const remoteActivity = selection.activity ?? "idle";
         const sameGive =
@@ -469,8 +566,8 @@ function listenIncomingRequests() {
         state.unsubscribeRequests();
     }
 
-    state.unsubscribeRequests = watchIncomingTradeRequests(state.uid, (chatData) => {
-        const partnerId = getPartnerIdFromChat(chatData, state.uid);
+    state.unsubscribeRequests = runtime.watchIncomingTradeRequests(state.uid, (chatData) => {
+        const partnerId = runtime.getPartnerIdFromChat(chatData, state.uid);
         const partnerName = partnerId
             ? chatData.participantNicknames?.[partnerId] ?? DEFAULT_PARTNER_NAME
             : DEFAULT_PARTNER_NAME;
@@ -493,8 +590,9 @@ async function init() {
     updateActionAreaUI();
 
     try {
-        await ensureNotificationPermission();
-        const { uid, nickname, activity } = await initAnonymousAuth();
+        await ensureRuntimeLoaded();
+        await runtime.ensureNotificationPermission();
+        const { uid, nickname, activity } = await runtime.initAnonymousAuth();
         state.uid = uid;
         state.nickname = nickname;
         if (elements.myNicknameChip) {
@@ -510,7 +608,7 @@ async function init() {
         listenSelection();
         listenIncomingRequests();
         startChatRecoveryPoll();
-        persistSelection().catch(console.error);
+        persistSelection();
 
         const hasSelection = hasValidSelection(selectionFromItems(state.items));
         if (!hasSelection) {
