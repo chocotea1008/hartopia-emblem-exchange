@@ -47,7 +47,7 @@ body {
 .app-header {
     background: var(--pop-pink);
     border-radius: 0 0 25px 25px;
-    padding: 1rem;
+    padding: 3.25rem 1rem 1rem;
     box-shadow: 0 6px 0 rgba(0,0,0,0.1), inset 0 -4px 0 rgba(0,0,0,0.1);
     border: 3px solid #fff;
     border-top: none;
@@ -92,6 +92,7 @@ body {
     border-radius: 50px;
     padding: 0.3rem 1.5rem;
     border: 3px solid #fff;
+    max-width: 100%;
     margin-bottom: 0.5rem;
 }
 
@@ -558,6 +559,7 @@ body {
 
 @media (max-width: 600px) {
     .app-header {
+        padding-top: 3.55rem;
         padding-left: 0.75rem;
         padding-right: 0.75rem;
     }
@@ -591,6 +593,15 @@ body {
         max-width: 46%;
         padding: 5px 9px;
         font-size: 0.7rem;
+    }
+
+    .progress-pill {
+        padding: 0.25rem 1rem;
+        margin-bottom: 0.45rem;
+    }
+
+    .progress-text {
+        font-size: 0.98rem;
     }
 
     .action-area {

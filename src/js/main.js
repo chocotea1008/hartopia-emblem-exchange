@@ -504,7 +504,7 @@ async function init() {
         state.uid = uid;
         state.nickname = nickname;
         if (elements.myNicknameChip) {
-            elements.myNicknameChip.textContent = `내 닉네임: ${nickname}`;
+            elements.myNicknameChip.textContent = `👤 ${nickname}`;
             elements.myNicknameChip.title = nickname;
         }
 
