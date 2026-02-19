@@ -486,6 +486,12 @@ function listenIncomingRequests() {
 }
 
 async function init() {
+    // Render immediately so slow networks don't leave a blank home screen.
+    maybeApplyStoredSelection();
+    bindEvents();
+    render();
+    updateActionAreaUI();
+
     try {
         await ensureNotificationPermission();
         const { uid, nickname, activity } = await initAnonymousAuth();
@@ -501,14 +507,10 @@ async function init() {
             return;
         }
 
-        maybeApplyStoredSelection();
-        bindEvents();
-        render();
-        updateActionAreaUI();
         listenSelection();
         listenIncomingRequests();
         startChatRecoveryPoll();
-        await persistSelection();
+        persistSelection().catch(console.error);
 
         const hasSelection = hasValidSelection(selectionFromItems(state.items));
         if (!hasSelection) {

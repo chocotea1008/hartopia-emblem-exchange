@@ -1,3 +1,5 @@
+import { ensureNotificationWorker } from "./notify.js";
+
 const OVERLAY_ID = "notification-required-overlay";
 const STYLE_ID = "notification-required-style";
 
@@ -127,7 +129,7 @@ export async function ensureNotificationPermission() {
 
     if (Notification.permission === "granted") {
         hideOverlay();
-        await ensureNotificationWorker();
+        ensureNotificationWorker().catch(console.error);
         return true;
     }
 
@@ -147,13 +149,13 @@ export async function ensureNotificationPermission() {
         try {
             const permission = await requestNotificationPermission();
             if (permission === "granted") {
-                await ensureNotificationWorker();
                 hideOverlay();
                 if (resolvePermission) {
                     resolvePermission(true);
                     resolvePermission = null;
                     pendingPermissionPromise = null;
                 }
+                ensureNotificationWorker().catch(console.error);
                 return;
             }
 
@@ -175,4 +177,3 @@ export async function ensureNotificationPermission() {
 
     return pendingPermissionPromise;
 }
-import { ensureNotificationWorker } from "./notify.js";
