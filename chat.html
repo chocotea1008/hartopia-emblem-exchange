@@ -346,6 +346,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
+            touch-action: manipulation;
         }
         .send-btn:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--pop-pink-dark); }
 
@@ -436,7 +437,7 @@
 
         <div class="chat-input-area">
             <input type="text" id="chat-input" class="chat-input" placeholder="메시지를 입력하세요..." autocomplete="off">
-            <button id="send-btn" class="send-btn">🚀</button>
+            <button id="send-btn" class="send-btn" type="button" aria-label="메시지 전송">🚀</button>
         </div>
     </div>
 

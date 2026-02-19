@@ -518,7 +518,13 @@ async function sendMessage() {
     });
 
     elements.chatInput.value = "";
-    elements.chatInput.focus();
+    if (
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(hover: hover) and (pointer: fine)").matches &&
+        document.activeElement !== elements.chatInput
+    ) {
+        elements.chatInput.focus();
+    }
 }
 
 async function maybeFinalizeTrade(chatData) {
@@ -690,9 +696,19 @@ async function cancelTradeByUser() {
 
 function bindEvents() {
     if (elements.sendBtn) {
-        elements.sendBtn.addEventListener("click", () => {
+        const handleSendPress = (event) => {
+            event.preventDefault();
             sendMessage().catch(console.error);
-        });
+        };
+
+        if ("PointerEvent" in window) {
+            elements.sendBtn.addEventListener("pointerdown", handleSendPress);
+        } else {
+            elements.sendBtn.addEventListener("mousedown", handleSendPress);
+            elements.sendBtn.addEventListener("touchstart", handleSendPress, {
+                passive: false,
+            });
+        }
     }
 
     if (elements.chatInput) {
