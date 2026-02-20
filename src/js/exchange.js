@@ -30,6 +30,7 @@ import {
 const CHAT_OPENED_MESSAGE = "채팅방이 열렸습니다.";
 const INCOMING_REQUEST_NOTIFICATION_TITLE = "교환 요청";
 const INCOMING_REQUEST_NOTIFICATION_KEY_PREFIX = "emblem.incoming.request.";
+const MATCH_SUMMARY_NOTIFICATION_TITLE = "매칭 완료";
 const DEFAULT_PARTNER_NAME = "상대방";
 const CHAT_RECOVERY_POLL_MS = 1500;
 
@@ -49,6 +50,7 @@ const state = {
     isRedirectingToChat: false,
     chatRecoveryTimer: null,
     visibilityHandler: null,
+    hasNotifiedMatchSummary: false,
 };
 
 function showNotification(title, body) {
@@ -120,6 +122,24 @@ function renderMatches() {
     if (!state.matches.length) {
         renderEmpty("현재 조건에 맞는 파트너가 없습니다. 잠시 후 다시 확인해주세요.");
         return;
+    }
+
+    if (!state.hasNotifiedMatchSummary) {
+        const matchedTypes = new Set();
+        for (const match of state.matches) {
+            for (const id of match.giveItems ?? []) {
+                matchedTypes.add(id);
+            }
+            for (const id of match.getItems ?? []) {
+                matchedTypes.add(id);
+            }
+        }
+        const totalMatched = matchedTypes.size > 0 ? matchedTypes.size : state.matches.length;
+        showNotification(
+            MATCH_SUMMARY_NOTIFICATION_TITLE,
+            `총 ${totalMatched}종이 매칭되었습니다.`,
+        );
+        state.hasNotifiedMatchSummary = true;
     }
 
     elements.exchangeList.innerHTML = state.matches

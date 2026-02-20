@@ -14,7 +14,6 @@ import {
 import { db } from "../../firebase-config.js";
 
 const MATCH_TTL_MS = 24 * 60 * 60 * 1000;
-const ACTIVE_USER_THRESHOLD_MS = 3 * 60 * 1000;
 const CHAT_OPENED_MESSAGE = "채팅방이 열렸습니다.";
 const LEGACY_MATCH_REQUEST_MESSAGE = "교환 요청이 도착했습니다";
 
@@ -130,14 +129,6 @@ function isExpired(matchingStartedAt) {
         return true;
     }
     return Date.now() - startedAtMs > MATCH_TTL_MS;
-}
-
-function isRecentlyActive(lastActive) {
-    const activeMs = toMillis(lastActive);
-    if (!activeMs) {
-        return false;
-    }
-    return Date.now() - activeMs <= ACTIVE_USER_THRESHOLD_MS;
 }
 
 function buildMatch(candidateDoc, myGiveItems, myGetItems) {
@@ -291,19 +282,12 @@ function computeMatches(snapshot, uid, myGiveItems, myGetItems) {
         }
 
         const candidate = candidateDoc.data();
-        const candidatePresence = derivePresence(candidate);
         const candidateActivity = deriveActivity(candidate);
 
-        if (candidatePresence !== PRESENCE_ONLINE) {
-            continue;
-        }
         if (candidateActivity !== ACTIVITY_MATCHING) {
             continue;
         }
         if (isExpired(candidate.matchingStartedAt)) {
-            continue;
-        }
-        if (!isRecentlyActive(candidate.lastActive)) {
             continue;
         }
 

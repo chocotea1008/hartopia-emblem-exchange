@@ -26,7 +26,6 @@ const CHAT_CANCELED_MESSAGE = "채팅이 닫혀 교환이 취소되었습니다.
 const TRADE_COMPLETED_MESSAGE = "거래가 종료되었습니다. 나가셔도 좋습니다.";
 const PRESENCE_NOTICE_DURATION_MS = 4000;
 const MATCH_TTL_MS = 24 * 60 * 60 * 1000;
-const ACTIVE_USER_THRESHOLD_MS = 3 * 60 * 1000;
 
 const elements = {
     messageList: document.getElementById("message-list"),
@@ -94,14 +93,6 @@ function isExpired(matchingStartedAt) {
     return Date.now() - startedAtMs > MATCH_TTL_MS;
 }
 
-function isRecentlyActive(lastActive) {
-    const activeMs = toMillis(lastActive);
-    if (!activeMs) {
-        return false;
-    }
-    return Date.now() - activeMs <= ACTIVE_USER_THRESHOLD_MS;
-}
-
 function derivePresence(data) {
     if (data?.presence === "online" || data?.presence === "offline") {
         return data.presence;
@@ -148,16 +139,10 @@ async function hasAvailableMatchesForCurrentUser() {
         }
 
         const candidate = userDoc.data();
-        if (derivePresence(candidate) !== "online") {
-            continue;
-        }
         if (deriveActivity(candidate) !== "matching") {
             continue;
         }
         if (isExpired(candidate.matchingStartedAt)) {
-            continue;
-        }
-        if (!isRecentlyActive(candidate.lastActive)) {
             continue;
         }
 
